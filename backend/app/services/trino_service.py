@@ -3,6 +3,14 @@ from trino.auth import BasicAuthentication
 from app.models.connection import TrinoConnectionRequest
 
 
+def quote_identifier(identifier: str) -> str:
+    return '"' + str(identifier).replace('"', '""') + '"'
+
+
+def qualified_name(*parts: str) -> str:
+    return ".".join(quote_identifier(part) for part in parts if part)
+
+
 def get_trino_connection(conn_req: TrinoConnectionRequest):
     auth = None
     if conn_req.password:
@@ -10,15 +18,19 @@ def get_trino_connection(conn_req: TrinoConnectionRequest):
     
     http_scheme = "https" if conn_req.ssl_enabled else "http"
     
-    conn = trino.dbapi.connect(
-        host=conn_req.host,
-        port=conn_req.port,
-        user=conn_req.username,
-        auth=auth,
-        catalog=conn_req.catalog,
-        schema=conn_req.schema_name,
-        http_scheme=http_scheme
-    )
+    connect_kwargs = {
+        "host": conn_req.host,
+        "port": conn_req.port,
+        "user": conn_req.username,
+        "auth": auth,
+        "http_scheme": http_scheme,
+    }
+    if conn_req.default_catalog:
+        connect_kwargs["catalog"] = conn_req.default_catalog
+    if conn_req.default_schema:
+        connect_kwargs["schema"] = conn_req.default_schema
+
+    conn = trino.dbapi.connect(**connect_kwargs)
     return conn
 
 
@@ -28,9 +40,8 @@ def validate_connection(conn_req: TrinoConnectionRequest) -> dict:
 
     Steps:
         1. Verify Trino is reachable (SELECT 1)
-        2. Verify catalog exists (SHOW SCHEMAS FROM <catalog>)
-        3. Verify schema exists within the catalog
-        4. Verify metadata can be queried (SHOW TABLES FROM <catalog>.<schema>)
+        2. Verify catalogs are discoverable (SHOW CATALOGS)
+        3. If provided, verify the default catalog/schema exist
 
     Returns a dict with:
         - success: bool
@@ -40,7 +51,7 @@ def validate_connection(conn_req: TrinoConnectionRequest) -> dict:
         - error: str or None
     """
     steps = []
-    tables = []
+    catalogs = []
     schemas = []
 
     # Step 1: Verify Trino is reachable
@@ -64,74 +75,103 @@ def validate_connection(conn_req: TrinoConnectionRequest) -> dict:
             "error": f"Cannot connect to Trino at {conn_req.host}:{conn_req.port}. Is the server running? Details: {str(e)}"
         }
 
-    # Step 2: Verify catalog exists by listing schemas
+    # Step 2: Verify catalog discovery works for the endpoint
     try:
-        cur.execute(f"SHOW SCHEMAS FROM {conn_req.catalog}")
+        cur.execute("SHOW CATALOGS")
         rows = cur.fetchall()
-        schemas = [row[0] for row in rows]
+        catalogs = [row[0] for row in rows]
         steps.append({
-            "step": "Catalog Validation",
+            "step": "Catalog Discovery",
             "passed": True,
-            "detail": f"Catalog '{conn_req.catalog}' exists with {len(schemas)} schema(s)"
+            "detail": f"Discovered {len(catalogs)} catalog(s)"
         })
     except Exception as e:
         error_str = str(e)
-        steps.append({"step": "Catalog Validation", "passed": False, "detail": error_str})
+        steps.append({"step": "Catalog Discovery", "passed": False, "detail": error_str})
         return {
             "success": False,
             "steps": steps,
-            "tables": [],
+            "catalogs": [],
             "schemas": [],
-            "error": f"Catalog '{conn_req.catalog}' does not exist or is not accessible. Details: {error_str}"
+            "error": f"Cannot discover catalogs from Trino. Details: {error_str}"
         }
 
-    # Step 3: Verify schema exists within the catalog
-    if conn_req.schema_name not in schemas:
+    # Step 3: Validate optional default catalog/schema as context only.
+    if conn_req.default_catalog:
+        if conn_req.default_catalog not in catalogs:
+            steps.append({
+                "step": "Default Catalog Validation",
+                "passed": False,
+                "detail": f"Default catalog '{conn_req.default_catalog}' not found"
+            })
+            return {
+                "success": False,
+                "steps": steps,
+                "catalogs": catalogs,
+                "schemas": [],
+                "error": f"Default catalog '{conn_req.default_catalog}' does not exist or is not accessible."
+            }
+
         steps.append({
-            "step": "Schema Validation",
+            "step": "Default Catalog Validation",
+            "passed": True,
+            "detail": f"Default catalog '{conn_req.default_catalog}' is available"
+        })
+
+        if conn_req.default_schema:
+            try:
+                cur.execute(f"SHOW SCHEMAS FROM {quote_identifier(conn_req.default_catalog)}")
+                rows = cur.fetchall()
+                schemas = [row[0] for row in rows]
+            except Exception as e:
+                error_str = str(e)
+                steps.append({"step": "Default Schema Validation", "passed": False, "detail": error_str})
+                return {
+                    "success": False,
+                    "steps": steps,
+                    "catalogs": catalogs,
+                    "schemas": [],
+                    "error": f"Cannot list schemas for default catalog '{conn_req.default_catalog}'. Details: {error_str}"
+                }
+
+            if conn_req.default_schema not in schemas:
+                steps.append({
+                    "step": "Default Schema Validation",
+                    "passed": False,
+                    "detail": f"Default schema '{conn_req.default_schema}' not found"
+                })
+                return {
+                    "success": False,
+                    "steps": steps,
+                    "catalogs": catalogs,
+                    "schemas": schemas,
+                    "error": f"Default schema '{conn_req.default_schema}' does not exist in default catalog '{conn_req.default_catalog}'."
+                }
+
+            steps.append({
+                "step": "Default Schema Validation",
+                "passed": True,
+                "detail": f"Default schema '{conn_req.default_schema}' is available"
+            })
+    elif conn_req.default_schema:
+        steps.append({
+            "step": "Default Schema Validation",
             "passed": False,
-            "detail": f"Schema '{conn_req.schema_name}' not found. Available: {', '.join(schemas)}"
+            "detail": "Default schema requires a default catalog"
         })
         return {
             "success": False,
             "steps": steps,
-            "tables": [],
-            "schemas": schemas,
-            "error": f"Schema '{conn_req.schema_name}' does not exist in catalog '{conn_req.catalog}'. Available schemas: {', '.join(schemas)}"
-        }
-    else:
-        steps.append({
-            "step": "Schema Validation",
-            "passed": True,
-            "detail": f"Schema '{conn_req.schema_name}' exists in catalog '{conn_req.catalog}'"
-        })
-
-    # Step 4: Verify metadata can be queried (SHOW TABLES)
-    try:
-        cur.execute(f"SHOW TABLES FROM {conn_req.catalog}.{conn_req.schema_name}")
-        rows = cur.fetchall()
-        tables = [row[0] for row in rows]
-        table_count = len(tables)
-        steps.append({
-            "step": "Metadata Query",
-            "passed": True,
-            "detail": f"Found {table_count} table(s) in {conn_req.catalog}.{conn_req.schema_name}"
-        })
-    except Exception as e:
-        error_str = str(e)
-        steps.append({"step": "Metadata Query", "passed": False, "detail": error_str})
-        return {
-            "success": False,
-            "steps": steps,
-            "tables": [],
-            "schemas": schemas,
-            "error": f"Cannot query tables in '{conn_req.catalog}.{conn_req.schema_name}'. Details: {error_str}"
+            "catalogs": catalogs,
+            "schemas": [],
+            "error": "Default schema requires a default catalog."
         }
 
     return {
         "success": True,
         "steps": steps,
-        "tables": tables,
+        "catalogs": catalogs,
+        "tables": [],
         "schemas": schemas,
         "error": None
     }

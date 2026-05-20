@@ -10,9 +10,10 @@ from app.services.summary_generator import generate_summary
 from app.validators.sql_validator import validate_sql
 from app.services.schema_loader import load_schema
 from app.executors.starburst_executor import StarburstExecutor
+from app.services.entity_resolution_service import extract_entities
+from app.services.relationship_inference_service import infer_relationships
 
 logger = logging.getLogger(__name__)
-
 
 class NLtoSQLPipeline:
     def __init__(self):
@@ -35,13 +36,19 @@ class NLtoSQLPipeline:
             raise RuntimeError("Schema metadata unavailable.")
 
         intent = await classify_intent(question, schema)
+        
+        matched_entities = extract_entities(question, schema)
 
         selected = await select_tables(
             question,
             schema,
             intent=intent,
             recent_sqls=self.recent_sqls,
+            matched_entities=matched_entities
         )
+        
+        selected_table_names = [s["table"] for s in selected]
+        inferred_relationships = infer_relationships(schema, selected_tables=selected_table_names)
 
         sql_output = await generate_sql(
             question=question,
@@ -51,6 +58,8 @@ class NLtoSQLPipeline:
             recent_sqls=self.recent_sqls,
             session_id=session_id,
             copilot_token=copilot_token,
+            matched_entities=matched_entities,
+            inferred_relationships=inferred_relationships,
         )
 
         sql = sql_output["sql"]

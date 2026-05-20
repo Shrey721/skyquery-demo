@@ -119,7 +119,8 @@ async def repair_sql(
 
     # Ensure LIMIT
     if "LIMIT" not in repaired_sql.upper():
-        repaired_sql += "\nLIMIT 100"
+        repaired_sql = repaired_sql.rstrip().rstrip(";")
+        repaired_sql += " LIMIT 100"
 
     logger.info("Repaired SQL: %s", repaired_sql)
 

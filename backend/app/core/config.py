@@ -21,6 +21,19 @@ class Settings(BaseSettings):
     
     # Redis URL
     REDIS_URL: str = "redis://localhost:6379/0"
+    METADATA_CACHE_TTL_SECONDS: int = int(os.getenv("METADATA_CACHE_TTL_SECONDS", "86400"))
+    METADATA_EXCLUDED_CATALOGS: str = "system"
+    METADATA_EXCLUDED_SCHEMAS: str = (
+        "information_schema,pg_catalog,pg_toast,sys,performance_schema,mysql,"
+        "auth,storage,realtime,vault,extensions,graphql,graphql_public,"
+        "internal,metadata"
+    )
+    METADATA_EXCLUDED_TABLES: str = (
+        "tables,columns,views,schemata,applicable_roles,enabled_roles,roles,"
+        "table_privileges,routines,parameters,triggers,constraints,"
+        "key_column_usage,referential_constraints,check_constraints"
+    )
+    METADATA_FILTER_DEBUG: bool = False
 
     class Config:
         env_file = ".env"

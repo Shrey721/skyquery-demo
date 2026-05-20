@@ -5,8 +5,8 @@ base_url = "http://127.0.0.1:8000/api/v1/connections"
 
 data = {
     "host": "localhost",
-    "port": 8080,
-    "catalog": "aviation",
+    "port": 8081,
+    "catalog": "postgres",
     "schema": "public",
     "username": "trino",
     "password": "",

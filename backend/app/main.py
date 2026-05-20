@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.api.routes import connections, metadata, auth
+from app.api.routes.flights import router as flights_router
 from app.models.connection import Base
 from app.models.user import User  # Import User to ensure tables are created
 from app.db.database import engine
@@ -46,6 +47,7 @@ app.include_router(auth.router, prefix=f"{settings.API_V1_STR}/auth", tags=["aut
 # Import and register the NL-to-SQL query endpoint
 from app.api.routes.query import router as query_router
 app.include_router(query_router, tags=["query"])
+app.include_router(flights_router, prefix=f"{settings.API_V1_STR}", tags=["flights"])
 
 @app.get("/")
 def root():

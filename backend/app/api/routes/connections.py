@@ -9,11 +9,10 @@ router = APIRouter()
 @router.post("/test-connection")
 def test_connection(conn_req: TrinoConnectionRequest):
     """
-    Performs full JDBC-style connection validation:
+    Performs Trino endpoint validation:
       1. Verify Trino is reachable (SELECT 1)
-      2. Verify catalog exists (SHOW SCHEMAS FROM <catalog>)
-      3. Verify schema exists in the catalog
-      4. Verify metadata can be queried (SHOW TABLES FROM <catalog>.<schema>)
+      2. Verify catalogs are discoverable (SHOW CATALOGS)
+      3. Validate optional default catalog/schema context
 
     Returns detailed step-by-step results without saving the connection.
     """
@@ -30,9 +29,10 @@ def test_connection(conn_req: TrinoConnectionRequest):
         )
     return {
         "status": "success",
-        "message": f"All validation checks passed. Found {len(result['tables'])} table(s) in {conn_req.catalog}.{conn_req.schema_name}.",
+        "message": f"Connection validated. Discovered {len(result.get('catalogs', []))} catalog(s).",
         "steps": result["steps"],
         "tables": result["tables"],
+        "catalogs": result.get("catalogs", []),
         "schemas": result["schemas"],
     }
 
@@ -80,7 +80,7 @@ def connect(conn_req: TrinoConnectionRequest, db: Session = Depends(get_db)):
     # Step 4: Return everything
     return {
         "status": "success",
-        "message": f"Connected and discovered {len(schema_metadata.tables)} table(s).",
+        "message": f"Connected and discovered {len(schema_metadata.tables)} table(s) across {len(schema_metadata.catalogs)} catalog(s).",
         "connection": TrinoConnectionResponse.model_validate(active_conn).model_dump(),
         "metadata": schema_metadata.model_dump(),
         "steps": result["steps"],

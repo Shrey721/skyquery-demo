@@ -165,6 +165,32 @@
 .schema-list {
   display: flex;
   flex-direction: column;
+  gap: 8px;
+}
+
+.schema-tree-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.schema-tree-heading {
+  padding: 8px 12px 4px;
+  color: var(--text-primary);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.schema-tree-schema {
+  border-left: 1px solid var(--border-color);
+  margin-left: 12px;
+  padding-left: 8px;
+}
+
+.schema-tree-subheading {
+  padding: 6px 12px 4px;
+  color: var(--text-secondary);
+  font-size: 0.76rem;
+  font-weight: 600;
 }
 
 .schema-table-item {

@@ -150,6 +150,8 @@ async def generate_sql(
         "recent_sqls": recent_sqls[-3:],
         "sample_values": sample_values or {},
         "intent": intent or {},
+        "matched_entities": kwargs.get("matched_entities", []),
+        "inferred_relationships": kwargs.get("inferred_relationships", []),
     }
 
     prompt = prompt_template.format(**context)

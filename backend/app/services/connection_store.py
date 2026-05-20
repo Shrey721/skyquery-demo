@@ -24,8 +24,8 @@ def save_active_connection(db: Session, conn_req: TrinoConnectionRequest) -> Con
     new_conn = ConnectionRecord(
         host=conn_req.host,
         port=conn_req.port,
-        catalog=conn_req.catalog,
-        schema_name=conn_req.schema_name,
+        default_catalog=conn_req.default_catalog or "",
+        default_schema=conn_req.default_schema or "",
         username=conn_req.username,
         encrypted_password=encrypt_password(conn_req.password),
         ssl_enabled=conn_req.ssl_enabled,

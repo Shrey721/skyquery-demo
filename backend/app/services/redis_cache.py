@@ -7,8 +7,7 @@ from app.core.config import settings
 redis_client = redis.Redis.from_url(settings.REDIS_URL, decode_responses=True)
 
 SCHEMA_CACHE_KEY = "skyquery:metadata:schema"
-# Long-lived TTL as requested: e.g., 24 hours
-SCHEMA_CACHE_TTL = 86400
+SCHEMA_CACHE_TTL = settings.METADATA_CACHE_TTL_SECONDS
 
 def set_metadata(metadata_json: str):
     """

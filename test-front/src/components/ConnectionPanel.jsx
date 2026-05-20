@@ -1,13 +1,13 @@
 import React, { useState } from 'react';
-import { FiX, FiCheck, FiAlertCircle, FiLoader, FiServer, FiDatabase, FiGrid, FiLayers } from 'react-icons/fi';
+import { FiX, FiCheck, FiAlertCircle, FiLoader, FiServer, FiDatabase, FiLayers } from 'react-icons/fi';
 import { apiClient } from '../services/apiClient';
 import './ConnectionPanel.css';
 
 const STEP_ICONS = {
   'Trino Reachability': FiServer,
-  'Catalog Validation': FiDatabase,
-  'Schema Validation': FiLayers,
-  'Metadata Query': FiGrid,
+  'Catalog Discovery': FiDatabase,
+  'Default Catalog Validation': FiDatabase,
+  'Default Schema Validation': FiLayers,
 };
 
 function ValidationStep({ step }) {
@@ -29,8 +29,8 @@ export default function ConnectionPanel({ onClose, onConnect }) {
   const [formData, setFormData] = useState({
     host: 'localhost',
     port: 8080,
-    catalog: 'aviation',
-    schema_name: 'public',
+    default_catalog: '',
+    default_schema: '',
     username: 'trino',
     password: '',
     ssl_enabled: false
@@ -113,7 +113,7 @@ export default function ConnectionPanel({ onClose, onConnect }) {
         <div className="modal-header">
           <h2>
             <FiServer className="header-icon" />
-            Trino Connection
+            Trino Endpoint
           </h2>
           <button className="close-btn" onClick={onClose}><FiX /></button>
         </div>
@@ -132,12 +132,12 @@ export default function ConnectionPanel({ onClose, onConnect }) {
 
           <div className="form-row">
             <div className="form-group flex-1">
-              <label>Catalog</label>
-              <input type="text" name="catalog" value={formData.catalog} onChange={handleChange} placeholder="e.g. aviation" />
+              <label>Default Catalog <span className="optional-tag">optional</span></label>
+              <input type="text" name="default_catalog" value={formData.default_catalog} onChange={handleChange} placeholder="Optional query context" />
             </div>
             <div className="form-group flex-1">
-              <label>Schema</label>
-              <input type="text" name="schema_name" value={formData.schema_name} onChange={handleChange} placeholder="e.g. public" />
+              <label>Default Schema <span className="optional-tag">optional</span></label>
+              <input type="text" name="default_schema" value={formData.default_schema} onChange={handleChange} placeholder="Optional query context" />
             </div>
           </div>
 

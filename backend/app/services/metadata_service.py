@@ -1,96 +1,138 @@
-import json
+import logging
 from sqlalchemy.orm import Session
-from app.services import connection_store, trino_service
-from app.models.connection import TrinoConnectionRequest
-from app.models.metadata import SchemaMetadata, TableMetadata, ColumnMetadata
-from app.services import redis_cache
 
-def discover_and_cache_metadata(db: Session) -> SchemaMetadata:
-    """
-    Connects to Trino using the active connection, queries the information_schema,
-    builds the SchemaMetadata object, and caches it in Redis.
-    """
+from app.models.connection import TrinoConnectionRequest
+from app.models.metadata import (
+    CatalogMetadata,
+    ColumnMetadata,
+    GlobalMetadata,
+    SchemaMetadata,
+    TableMetadata,
+)
+from app.services import connection_store, metadata_filter, redis_cache, trino_service
+
+logger = logging.getLogger(__name__)
+
+
+def _active_connection_request(db: Session) -> TrinoConnectionRequest:
     active_conn = connection_store.get_active_connection(db)
     if not active_conn:
         raise ValueError("No active Trino connection found.")
 
-    conn_req = TrinoConnectionRequest(
+    return TrinoConnectionRequest(
         host=active_conn.host,
         port=active_conn.port,
-        catalog=active_conn.catalog,
-        schema=active_conn.schema_name,
+        default_catalog=active_conn.default_catalog,
+        default_schema=active_conn.default_schema,
         username=active_conn.username,
         password=connection_store.decrypt_password(active_conn.encrypted_password),
-        ssl=active_conn.ssl_enabled
+        ssl=active_conn.ssl_enabled,
     )
 
-    try:
-        conn = trino_service.get_trino_connection(conn_req)
-        cur = conn.cursor()
 
-        # 1. Fetch tables
-        cur.execute(f"SELECT table_catalog, table_schema, table_name FROM information_schema.tables WHERE table_schema = '{active_conn.schema_name}' AND table_catalog = '{active_conn.catalog}'")
-        tables_rows = cur.fetchall()
+def _first_column(rows) -> list[str]:
+    return [row[0] for row in rows if row and row[0]]
 
-        table_dict = {}
-        for row in tables_rows:
-            cat, schema, table = row
-            table_dict[table] = TableMetadata(
-                catalog=cat,
-                schema_name=schema,
-                table_name=table,
-                columns=[],
-                row_count=None
+
+def _columns_from_describe(rows) -> list[ColumnMetadata]:
+    columns: list[ColumnMetadata] = []
+    for row in rows:
+        if not row or not row[0]:
+            continue
+
+        name = row[0]
+        data_type = row[1] if len(row) > 1 and row[1] else "unknown"
+        nullable = True
+        if len(row) > 2 and row[2] is not None:
+            nullable = str(row[2]).upper() in {"YES", "TRUE", ""}
+
+        columns.append(
+            ColumnMetadata(
+                name=name,
+                data_type=data_type,
+                is_nullable=nullable,
             )
+        )
+    return columns
 
-        # 2. Fetch columns
-        cur.execute(f"SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = '{active_conn.schema_name}' AND table_catalog = '{active_conn.catalog}'")
-        columns_rows = cur.fetchall()
 
-        for row in columns_rows:
-            table, col, dtype, nullable = row
-            if table in table_dict:
-                table_dict[table].columns.append(ColumnMetadata(
-                    name=col,
-                    data_type=dtype,
-                    is_nullable=(nullable == 'YES')
-                ))
+def discover_and_cache_metadata(db: Session) -> GlobalMetadata:
+    """
+    Discover all accessible catalogs, schemas, tables, and columns from one Trino
+    endpoint. The default catalog/schema are used only as connection context.
+    """
+    conn_req = _active_connection_request(db)
+    metadata = GlobalMetadata()
 
-        # 3. Fetch stats (row count)
-        for table in table_dict.keys():
+    conn = trino_service.get_trino_connection(conn_req)
+    cur = conn.cursor()
+
+    try:
+        cur.execute("SHOW CATALOGS")
+        catalogs = metadata_filter.filter_catalogs(_first_column(cur.fetchall()))
+    except Exception as exc:
+        raise Exception(f"Failed to discover catalogs from Trino: {exc}") from exc
+
+    for catalog in catalogs:
+        catalog_meta = CatalogMetadata()
+        metadata.catalogs[catalog] = catalog_meta
+
+        try:
+            cur.execute(f"SHOW SCHEMAS FROM {trino_service.quote_identifier(catalog)}")
+            schemas = metadata_filter.filter_schemas(catalog, _first_column(cur.fetchall()))
+        except Exception as exc:
+            message = f"Failed to discover schemas for catalog {catalog}: {exc}"
+            logger.warning(message)
+            metadata.discovery_errors.append(message)
+            continue
+
+        for schema in schemas:
+            schema_meta = SchemaMetadata()
+            catalog_meta.schemas[schema] = schema_meta
+            schema_ref = trino_service.qualified_name(catalog, schema)
+
             try:
-                cur.execute(f"SHOW STATS FOR {active_conn.catalog}.{active_conn.schema_name}.{table}")
-                stats_rows = cur.fetchall()
-                # Typically, SHOW STATS returns rows where the last row (where column_name is NULL) contains table-level stats.
-                # Or we can just look for the row where column_name is None/NULL
-                for row in stats_rows:
-                    # In Trino, SHOW STATS returns: column_name, data_size, distinct_values_count, nulls_fraction, row_count, low_value, high_value
-                    # Usually, the row with column_name IS NULL has the table row_count.
-                    if row[0] is None:
-                        # row_count is the 5th column (index 4) typically.
-                        if len(row) > 4 and row[4] is not None:
-                            table_dict[table].row_count = int(row[4])
-                        break
-            except Exception as e:
-                # If SHOW STATS fails for some reason (e.g. view), just ignore and leave row_count as None
-                print(f"Failed to fetch stats for {table}: {e}")
+                cur.execute(f"SHOW TABLES FROM {schema_ref}")
+                tables = metadata_filter.filter_tables(catalog, schema, _first_column(cur.fetchall()))
+            except Exception as exc:
+                message = f"Failed to discover tables for schema {catalog}.{schema}: {exc}"
+                logger.warning(message)
+                metadata.discovery_errors.append(message)
+                continue
 
-        # Build schema metadata
-        schema_metadata = SchemaMetadata(tables=list(table_dict.values()))
+            for table in tables:
+                table_ref = trino_service.qualified_name(catalog, schema, table)
+                try:
+                    cur.execute(f"DESCRIBE {table_ref}")
+                    columns = _columns_from_describe(cur.fetchall())
+                except Exception as exc:
+                    message = f"Failed to describe table {catalog}.{schema}.{table}: {exc}"
+                    logger.warning(message)
+                    metadata.discovery_errors.append(message)
+                    columns = []
 
-        # Cache in Redis
-        redis_cache.set_metadata(schema_metadata.model_dump_json())
+                table_meta = TableMetadata(
+                    catalog=catalog,
+                    schema_name=schema,
+                    table_name=table,
+                    columns=columns,
+                    row_count=None,
+                )
+                schema_meta.tables[table] = table_meta
+                metadata.tables.append(table_meta)
 
-        return schema_metadata
+    redis_cache.set_metadata(metadata.model_dump_json())
+    logger.info(
+        "Discovered Trino metadata: %s catalog(s), %s table(s), %s non-fatal error(s)",
+        len(metadata.catalogs),
+        len(metadata.tables),
+        len(metadata.discovery_errors),
+    )
+    return metadata
 
-    except Exception as e:
-        raise Exception(f"Failed to discover metadata: {str(e)}")
 
-def get_cached_metadata() -> SchemaMetadata:
-    """
-    Retrieves metadata from Redis.
-    """
+def get_cached_metadata() -> GlobalMetadata | None:
     cached_json = redis_cache.get_metadata()
     if cached_json:
-        return SchemaMetadata.model_validate_json(cached_json)
+        return GlobalMetadata.model_validate_json(cached_json)
     return None
