@@ -33,7 +33,7 @@ class NLtoSQLPipeline:
 
         schema = load_schema()
         if schema is None:
-            raise RuntimeError("Schema metadata unavailable.")
+            raise RuntimeError("Choose data sources for AI context before asking a question.")
 
         intent = await classify_intent(question, schema)
         

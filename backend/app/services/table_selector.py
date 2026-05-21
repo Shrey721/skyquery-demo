@@ -200,11 +200,12 @@ async def select_tables(
 
     for table_name, score in boosted_scores.items():
         if score > 0:
+            selected_meta = tables.get(table_name, {})
             selected.append({
                 "table": table_name,
-                "catalog": table_meta.get("catalog") if isinstance(table_meta, dict) else None,
-                "schema": table_meta.get("schema_name") if isinstance(table_meta, dict) else None,
-                "table_name": table_meta.get("table_name") if isinstance(table_meta, dict) else table_name,
+                "catalog": selected_meta.get("catalog") if isinstance(selected_meta, dict) else None,
+                "schema": selected_meta.get("schema_name") if isinstance(selected_meta, dict) else None,
+                "table_name": selected_meta.get("table_name") if isinstance(selected_meta, dict) else table_name,
                 "score": min(round(score, 2), 1.0),
                 "reason": "; ".join(score_reasons[table_name])
             })

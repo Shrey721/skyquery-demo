@@ -1,5 +1,5 @@
 from typing import Dict, List, Optional
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 class ColumnMetadata(BaseModel):
     name: str = Field(..., description="Column name")
@@ -30,3 +30,50 @@ class GlobalMetadata(BaseModel):
     catalogs: Dict[str, CatalogMetadata] = Field(default_factory=dict, description="Catalogs keyed by catalog name")
     tables: List[TableMetadata] = Field(default_factory=list, description="Flattened compatibility view of all tables")
     discovery_errors: List[str] = Field(default_factory=list, description="Non-fatal metadata discovery errors")
+
+
+class DiscoveredSchema(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    schema_name: str = Field(
+        ...,
+        alias="schema",
+        validation_alias=AliasChoices("schema", "schema_name"),
+        description="Schema/database name",
+    )
+    tables: List[str] = Field(default_factory=list, description="Table names in this schema")
+
+    @property
+    def schema(self) -> str:
+        return self.schema_name
+
+
+class DiscoveredCatalog(BaseModel):
+    catalog: str = Field(..., description="Catalog name")
+    schemas: List[DiscoveredSchema] = Field(default_factory=list, description="Schemas in this catalog")
+
+
+class SourceDiscoveryResponse(BaseModel):
+    sources: List[DiscoveredCatalog] = Field(default_factory=list, description="Discovered catalog -> schema -> tables tree")
+    discovery_errors: List[str] = Field(default_factory=list, description="Non-fatal discovery errors")
+
+
+class SelectedSource(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    catalog: str = Field(..., min_length=1)
+    schema_name: str = Field(
+        ...,
+        alias="schema",
+        validation_alias=AliasChoices("schema", "schema_name"),
+        min_length=1,
+    )
+    tables: List[str] = Field(..., min_length=1)
+
+    @property
+    def schema(self) -> str:
+        return self.schema_name
+
+
+class SelectedSourcesRequest(BaseModel):
+    selected_sources: List[SelectedSource] = Field(default_factory=list)

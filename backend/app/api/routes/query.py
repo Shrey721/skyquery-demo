@@ -63,4 +63,5 @@ async def query_endpoint(request: QueryRequest, req: Request):
 
     except Exception as e:
         logger.exception("NL-to-SQL pipeline failed: %s", e)
-        raise HTTPException(status_code=500, detail=str(e))
+        status_code = 400 if "Choose data sources" in str(e) else 500
+        raise HTTPException(status_code=status_code, detail=str(e))

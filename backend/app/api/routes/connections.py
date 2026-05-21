@@ -43,8 +43,8 @@ def connect(conn_req: TrinoConnectionRequest, db: Session = Depends(get_db)):
     Full connect workflow:
       1. Validate connection (same as /test-connection)
       2. Save as active connection
-      3. Run metadata discovery & cache in Redis
-      4. Return connection info + metadata
+      3. Clear old selected scope and metadata
+      4. Return connection info
 
     If validation fails, nothing is saved and old metadata is cleared.
     """
@@ -53,6 +53,7 @@ def connect(conn_req: TrinoConnectionRequest, db: Session = Depends(get_db)):
     if not result["success"]:
         # Clear any stale metadata on failed connection
         redis_cache.clear_metadata()
+        redis_cache.clear_selected_sources()
         raise HTTPException(
             status_code=400,
             detail={
@@ -68,21 +69,15 @@ def connect(conn_req: TrinoConnectionRequest, db: Session = Depends(get_db)):
     except Exception as e:
         raise HTTPException(status_code=500, detail={"message": f"Failed to save connection: {str(e)}", "steps": result["steps"]})
 
-    # Step 3: Run metadata discovery
-    try:
-        schema_metadata = metadata_service.discover_and_cache_metadata(db)
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail={"message": f"Connection valid but metadata discovery failed: {str(e)}", "steps": result["steps"]}
-        )
+    # Step 3: New connection requires an explicit AI context selection.
+    redis_cache.clear_metadata()
+    redis_cache.clear_selected_sources()
 
     # Step 4: Return everything
     return {
         "status": "success",
-        "message": f"Connected and discovered {len(schema_metadata.tables)} table(s) across {len(schema_metadata.catalogs)} catalog(s).",
+        "message": "Connected. Choose data sources for AI context before querying.",
         "connection": TrinoConnectionResponse.model_validate(active_conn).model_dump(),
-        "metadata": schema_metadata.model_dump(),
         "steps": result["steps"],
     }
 
@@ -96,6 +91,7 @@ def disconnect(db: Session = Depends(get_db)):
     db.query(ConnectionRecord).update({"is_active": False})
     db.commit()
     redis_cache.clear_metadata()
+    redis_cache.clear_selected_sources()
     return {"status": "success", "message": "Disconnected. Metadata cache cleared."}
 
 
@@ -110,6 +106,8 @@ def save_connection(conn_req: TrinoConnectionRequest, db: Session = Depends(get_
         
         # Save securely
         active_conn = connection_store.save_active_connection(db, conn_req)
+        redis_cache.clear_metadata()
+        redis_cache.clear_selected_sources()
         return active_conn
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to save connection: {str(e)}")
