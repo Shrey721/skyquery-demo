@@ -2,6 +2,9 @@ from typing import Any, Dict
 import re
 
 FORBIDDEN = ["DROP", "DELETE", "UPDATE", "INSERT", "ALTER", "TRUNCATE", "CREATE"]
+METADATA_SCHEMAS = {"information_schema"}
+METADATA_OBJECTS = {"columns", "tables", "schemata"}
+READ_ONLY_PREFIXES = ("SELECT", "SHOW", "DESCRIBE", "DESC")
 
 
 def _strip_identifier_quotes(value: str) -> str:
@@ -35,6 +38,22 @@ def _referenced_tables(sql: str) -> list[str]:
     return refs
 
 
+def _is_metadata_reference(ref: str) -> bool:
+    parts = [part.lower() for part in ref.split(".") if part]
+    if len(parts) == 2:
+        return parts[0] in METADATA_SCHEMAS and parts[1] in METADATA_OBJECTS
+    if len(parts) == 3:
+        return parts[1] in METADATA_SCHEMAS and parts[2] in METADATA_OBJECTS
+    return False
+
+
+def _is_read_only_metadata_statement(upper_sql: str) -> bool:
+    return bool(
+        re.match(r"^\s*SHOW\s+(TABLES|SCHEMAS|CATALOGS|COLUMNS)\b", upper_sql)
+        or re.match(r"^\s*(DESCRIBE|DESC)\b", upper_sql)
+    )
+
+
 async def validate_sql(sql: str, schema: Dict[str, Any] | None = None) -> Dict[str, Any]:
     if not sql or not isinstance(sql, str):
         return {"valid": False, "is_valid": False, "errors": ["SQL is empty"]}
@@ -42,8 +61,8 @@ async def validate_sql(sql: str, schema: Dict[str, Any] | None = None) -> Dict[s
     cleaned = sql.strip()
     upper = cleaned.upper()
 
-    if not upper.startswith("SELECT"):
-        return {"valid": False, "is_valid": False, "errors": ["Only SELECT queries are allowed"]}
+    if not upper.startswith(READ_ONLY_PREFIXES):
+        return {"valid": False, "is_valid": False, "errors": ["Only read-only SELECT, SHOW, or DESCRIBE queries are allowed"]}
 
     for word in FORBIDDEN:
         if re.search(rf"\b{word}\b", upper):
@@ -52,9 +71,15 @@ async def validate_sql(sql: str, schema: Dict[str, Any] | None = None) -> Dict[s
     if cleaned.count(";") > 1:
         return {"valid": False, "is_valid": False, "errors": ["Multiple SQL statements are not allowed"]}
 
+    if _is_read_only_metadata_statement(upper):
+        return {"valid": True, "is_valid": True, "errors": []}
+
     allowed_tables = _allowed_tables(schema)
     if allowed_tables:
         for ref in _referenced_tables(cleaned):
+            if _is_metadata_reference(ref):
+                continue
+
             parts = [part for part in ref.split(".") if part]
             if len(parts) != 3:
                 return {

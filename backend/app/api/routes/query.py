@@ -14,6 +14,7 @@ router = APIRouter()
 class QueryRequest(BaseModel):
     question: str
     session_id: str | None = None
+    query_context: Dict[str, Any] | None = None
 
 
 @router.post("/query", response_model=Dict[str, Any])
@@ -54,6 +55,7 @@ async def query_endpoint(request: QueryRequest, req: Request):
             question=request.question,
             session_id=chat_session_id,
             copilot_token=copilot_token,
+            query_context=request.query_context,
         )
 
         return result

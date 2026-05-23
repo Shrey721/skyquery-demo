@@ -12,6 +12,8 @@ def sanitize_trino_sql(sql: str) -> str:
     """
     if not sql:
         return sql
+    sanitized = qualify_information_schema_with_catalog_filter(sql)
+
     # Regular expression to match: column_name [NOT] ILIKE 'value'
     # Group 1: column name (including optional table alias like t.column)
     # Group 2: optional 'NOT ' prefix (with single/multiple spaces)
@@ -19,8 +21,33 @@ def sanitize_trino_sql(sql: str) -> str:
     pattern = r"(\b[a-zA-Z_][a-zA-Z0-9_\.]*)\s+(not\s+)?ilike\s+('[^']*')"
     
     # We replace with LOWER(column) [NOT] LIKE LOWER(value)
-    sanitized = re.sub(pattern, r"LOWER(\1) \2LIKE LOWER(\3)", sql, flags=re.IGNORECASE)
+    sanitized = re.sub(pattern, r"LOWER(\1) \2LIKE LOWER(\3)", sanitized, flags=re.IGNORECASE)
     return sanitized
+
+
+def _quote_identifier(value: str) -> str:
+    return '"' + value.replace('"', '""') + '"'
+
+
+def qualify_information_schema_with_catalog_filter(sql: str) -> str:
+    if not sql:
+        return sql
+
+    if not re.search(r"\bfrom\s+information_schema\.(columns|tables|schemata)\b", sql, re.IGNORECASE):
+        return sql
+
+    catalog_match = re.search(r"\btable_catalog\s*=\s*'([^']+)'", sql, re.IGNORECASE)
+    if not catalog_match:
+        return sql
+
+    catalog = catalog_match.group(1)
+    return re.sub(
+        r"\bfrom\s+information_schema\.(columns|tables|schemata)\b",
+        lambda match: f"FROM {_quote_identifier(catalog)}.information_schema.{match.group(1)}",
+        sql,
+        count=1,
+        flags=re.IGNORECASE,
+    )
 
 
 async def repair_sql(
@@ -47,6 +74,7 @@ async def repair_sql(
 
     repaired_sql = failed_sql.strip()
     explanation = "Applied fallback SQL repair logic."
+    repaired_sql = qualify_information_schema_with_catalog_filter(repaired_sql)
 
     # Check for Trino-unsupported ILIKE operator in failed SQL or in error messages
     if "ilike" in repaired_sql.lower() or "ilike" in error_message.lower():
@@ -113,12 +141,13 @@ async def repair_sql(
             repaired_sql = "SELECT 1 AS blocked_query"
             break
 
-    # Ensure SELECT
-    if not repaired_sql.upper().startswith("SELECT"):
+    # Ensure read-only SQL. Metadata statements such as SHOW/DESCRIBE are valid
+    # read-only Trino commands and should not be converted into analytics SQL.
+    if not repaired_sql.upper().startswith(("SELECT", "SHOW", "DESCRIBE", "DESC")):
         repaired_sql = "SELECT 1 AS repaired_query"
 
     # Ensure LIMIT
-    if "LIMIT" not in repaired_sql.upper():
+    if repaired_sql.upper().startswith("SELECT") and "LIMIT" not in repaired_sql.upper():
         repaired_sql = repaired_sql.rstrip().rstrip(";")
         repaired_sql += " LIMIT 100"
 
