@@ -7,6 +7,17 @@ from app.services.sql_generator import generate_sql
 from app.services.sql_repair import repair_sql
 from app.services.result_shaper import shape_result
 from app.services.summary_generator import generate_summary
+from app.services.execution_errors import (
+    build_connector_error_response,
+    detect_catalog_from_sql,
+    is_connector_connection_failure,
+)
+from app.services.followup_query_resolver import (
+    build_followup_clarification_response,
+    classify_followup_routing,
+    resolve_followup_query,
+    sanity_check_followup_resolution,
+)
 from app.services.metadata_followup import (
     build_metadata_followup_response,
     build_metadata_clarification_response,
@@ -96,6 +107,14 @@ class NLtoSQLPipeline:
                 try:
                     raw_rows = await self.executor.execute(sql)
                 except Exception as exc:
+                    if is_connector_connection_failure(exc):
+                        logger.warning(
+                            "Metadata execution failure category=connector_connection_failed | generated_sql=%s | error=%s",
+                            sql,
+                            exc,
+                        )
+                        return build_connector_error_response(sql, exc, validation=validation)
+
                     repair = await repair_sql(
                         question=question,
                         failed_sql=sql,
@@ -107,7 +126,17 @@ class NLtoSQLPipeline:
                     validation = await validate_sql(sql, schema)
                     if not validation["valid"]:
                         raise RuntimeError(f"SQL validation failed after metadata execution repair: {validation['errors']}")
-                    raw_rows = await self.executor.execute(sql)
+                    try:
+                        raw_rows = await self.executor.execute(sql)
+                    except Exception as repaired_exc:
+                        if is_connector_connection_failure(repaired_exc):
+                            logger.warning(
+                                "Metadata repaired execution failure category=connector_connection_failed | generated_sql=%s | error=%s",
+                                sql,
+                                repaired_exc,
+                            )
+                            return build_connector_error_response(sql, repaired_exc, validation=validation)
+                        raise
 
                 shaped = shape_result(raw_rows, question=question, sql=sql, intent={"intent": "schema_exploration"})
                 summary = await generate_summary(question=question, sql=sql, result=shaped, schema=schema)
@@ -181,6 +210,184 @@ class NLtoSQLPipeline:
                 "selected_metadata_strategy": "not_metadata_followup",
             },
         )
+
+        followup_routing = classify_followup_routing(question, schema, query_context)
+        logger.info(
+            "Context routing gate | current_query=%s | routing_decision=%s | routing_confidence=%s | standalone_signals=%s | followup_signals=%s | previous_context_trust_score=%s | fuzzy_corrections_applied=%s | reason=%s",
+            question,
+            followup_routing.get("routing_decision"),
+            followup_routing.get("routing_confidence"),
+            followup_routing.get("standalone_signals"),
+            followup_routing.get("followup_signals"),
+            followup_routing.get("previous_context_trust_score"),
+            followup_routing.get("generic_corrections_applied"),
+            followup_routing.get("reason"),
+        )
+        print(
+            "CONTEXT ROUTING DEBUG:",
+            {
+                "current_query": question,
+                "routing_decision": followup_routing.get("routing_decision"),
+                "routing_confidence": followup_routing.get("routing_confidence"),
+                "standalone_signals": followup_routing.get("standalone_signals"),
+                "followup_signals": followup_routing.get("followup_signals"),
+                "previous_context_trust_score": followup_routing.get("previous_context_trust_score"),
+                "fuzzy_corrections_applied": followup_routing.get("generic_corrections_applied"),
+                "reason": followup_routing.get("reason"),
+            },
+        )
+
+        if followup_routing.get("routing_decision") == "ambiguous_needs_clarification":
+            return build_followup_clarification_response(
+                question,
+                schema,
+                "I need a table or previous result before I can apply that filter. Choose a discovered table, then ask again.",
+            )
+
+        followup_resolution = None
+        if followup_routing.get("routing_decision") == "contextual_followup":
+            followup_resolution = resolve_followup_query(question, schema, query_context)
+
+        if followup_resolution:
+            if followup_resolution.get("status") == "clarification":
+                return build_followup_clarification_response(
+                    question,
+                    schema,
+                    "I can use the previous result, but multiple columns could match this filter. Which one should I use?",
+                    followup_resolution.get("choices"),
+                )
+
+            sanity = sanity_check_followup_resolution(question, schema, query_context, followup_resolution, followup_routing)
+            if not sanity["accepted"]:
+                logger.info(
+                    "Follow-up resolver SQL rejected | current_query=%s | resolver_sql_accepted=false | fallback_to_llm=true | reason=%s | generated_sql=%s",
+                    question,
+                    sanity["reason"],
+                    followup_resolution.get("sql"),
+                )
+                print(
+                    "FOLLOWUP SANITY DEBUG:",
+                    {
+                        "resolver_sql_accepted": False,
+                        "fallback_to_llm": True,
+                        "reason": sanity["reason"],
+                        "generated_sql": followup_resolution.get("sql"),
+                    },
+                )
+                followup_resolution = None
+
+        if followup_resolution:
+            sql = followup_resolution["sql"]
+            selected = [
+                {
+                    "table": ".".join(
+                        str(part)
+                        for part in [
+                            followup_resolution["table"].get("catalog"),
+                            followup_resolution["table"].get("schema_name"),
+                            followup_resolution["table"].get("table_name"),
+                        ]
+                        if part
+                    ),
+                    "catalog": followup_resolution["table"].get("catalog"),
+                    "schema": followup_resolution["table"].get("schema_name"),
+                    "table_name": followup_resolution["table"].get("table_name"),
+                    "score": 1.0,
+                    "reason": "previous successful query context",
+                }
+            ]
+            validation = await validate_sql(sql, schema)
+            logger.info(
+                "Follow-up resolution | current_query=%s | normalized_query=%s | token_corrections=%s | confidence=%s | previous_context_used=true | resolved_table=%s | resolved_filters=%s | generated_sql=%s | validation=%s",
+                question,
+                followup_resolution.get("normalized_query"),
+                followup_resolution.get("token_corrections"),
+                followup_resolution.get("normalization_confidence"),
+                selected[0]["table"],
+                followup_resolution.get("filters"),
+                sql,
+                validation,
+            )
+            print(
+                "FOLLOWUP QUERY DEBUG:",
+                {
+                    "current_query": question,
+                    "normalized_query": followup_resolution.get("normalized_query"),
+                    "token_corrections": followup_resolution.get("token_corrections"),
+                    "confidence": followup_resolution.get("normalization_confidence"),
+                    "previous_context_used": True,
+                    "resolved_table": selected[0]["table"],
+                    "resolved_filters": followup_resolution.get("filters"),
+                    "generated_sql": sql,
+                    "validation": validation,
+                    "resolver_sql_accepted": True,
+                    "fallback_to_llm": False,
+                },
+            )
+            if not validation["valid"]:
+                raise RuntimeError(f"SQL validation failed for context follow-up: {validation['errors']}")
+
+            self.recent_sqls.append(sql)
+            self.recent_sqls = self.recent_sqls[-3:]
+
+            try:
+                raw_rows = await self.executor.execute(sql)
+            except Exception as exc:
+                if is_connector_connection_failure(exc):
+                    logger.warning(
+                        "Execution failure category=connector_connection_failed | catalog=%s | generated_sql=%s | error=%s",
+                        detect_catalog_from_sql(sql),
+                        sql,
+                        exc,
+                    )
+                    return build_connector_error_response(
+                        sql,
+                        exc,
+                        catalog=detect_catalog_from_sql(sql),
+                        validation=validation,
+                    )
+                raise
+
+            shaped = shape_result(raw_rows, question=question, sql=sql, intent=intent)
+            summary = await generate_summary(
+                question=question,
+                sql=sql,
+                result=shaped,
+                schema=schema,
+                recent_sqls=self.recent_sqls,
+            )
+            return {
+                "intent": {**intent, "followup_context_used": True} if isinstance(intent, dict) else intent,
+                "result_intent": shaped["result_intent"],
+                "selected_tables": selected,
+                "sql": sql,
+                "validation": validation,
+                "execution": {
+                    "rows": shaped["rows"],
+                    "preview": shaped["preview_rows"],
+                    "columns": shaped["columns"],
+                    "chart_suggestion": shaped["chart_suggestion"],
+                    "visualization": shaped["visualization"],
+                    "rendering": shaped["rendering"],
+                },
+                "summary": summary,
+                "metadata": {
+                    "schema_tables": len(schema) if hasattr(schema, "__len__") else 0,
+                    "mock_mode": self.mock_mode,
+                    "llm_token_received": bool(copilot_token),
+                    "result_intent": shaped["result_intent"],
+                    "metadata_context": shaped["rendering"].get("metadata_context", {}),
+                    "followup_context_used": True,
+                    "resolved_filters": followup_resolution.get("filters"),
+                },
+                "rendering": shaped["rendering"],
+            }
+
+        logger.info(
+            "Follow-up resolution | current_query=%s | previous_context_used=false | resolver_sql_accepted=false | fallback_to_llm=true | reason=%s",
+            question,
+            followup_routing.get("reason") or ("no previous SQL/table/filter match" if query_context else "no previous context"),
+        )
         
         matched_entities = extract_entities(question, schema)
 
@@ -243,6 +450,20 @@ class NLtoSQLPipeline:
         except Exception as exc:
             exec_err = str(exc)
 
+            if is_connector_connection_failure(exc):
+                logger.warning(
+                    "Execution failure category=connector_connection_failed | catalog=%s | generated_sql=%s | error=%s",
+                    detect_catalog_from_sql(sql),
+                    sql,
+                    exec_err,
+                )
+                return build_connector_error_response(
+                    sql,
+                    exc,
+                    catalog=detect_catalog_from_sql(sql),
+                    validation=validation,
+                )
+
             repair = await repair_sql(
                 question=question,
                 failed_sql=sql,
@@ -254,7 +475,23 @@ class NLtoSQLPipeline:
             )
 
             sql = repair["sql"]
-            raw_rows = await self.executor.execute(sql)
+            try:
+                raw_rows = await self.executor.execute(sql)
+            except Exception as repaired_exc:
+                if is_connector_connection_failure(repaired_exc):
+                    logger.warning(
+                        "Repaired execution failure category=connector_connection_failed | catalog=%s | generated_sql=%s | error=%s",
+                        detect_catalog_from_sql(sql),
+                        sql,
+                        repaired_exc,
+                    )
+                    return build_connector_error_response(
+                        sql,
+                        repaired_exc,
+                        catalog=detect_catalog_from_sql(sql),
+                        validation=validation,
+                    )
+                raise
 
         shaped = shape_result(raw_rows, question=question, sql=sql, intent=intent)
 

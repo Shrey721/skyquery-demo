@@ -1,6 +1,10 @@
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings
 import os
+from pathlib import Path
 from cryptography.fernet import Fernet
+
+BACKEND_DIR = Path(__file__).resolve().parents[2]
 
 class Settings(BaseSettings):
     PROJECT_NAME: str = "SkyQuery API"
@@ -17,10 +21,26 @@ class Settings(BaseSettings):
     SECRET_KEY: str = os.getenv("SECRET_KEY", Fernet.generate_key().decode("utf-8"))
     
     # SQLite Database URL
-    DATABASE_URL: str = "sqlite:///./connections.db"
+    DATABASE_URL: str = os.getenv("DATABASE_URL", f"sqlite:///{(BACKEND_DIR / 'connections.db').as_posix()}")
     
     # Redis URL
     REDIS_URL: str = "redis://localhost:6379/0"
+
+    # Trino fallback connection. Saved connections still take precedence.
+    TRINO_HOST: str = os.getenv("TRINO_HOST", "localhost")
+    TRINO_PORT: int = int(os.getenv("TRINO_PORT", "8081"))
+    TRINO_USER: str = os.getenv("TRINO_USER", "admin")
+    TRINO_DEFAULT_CATALOG: str = Field(
+        "",
+        validation_alias=AliasChoices("TRINO_DEFAULT_CATALOG", "TRINO_CATALOG"),
+    )
+    TRINO_DEFAULT_SCHEMA: str = Field(
+        "",
+        validation_alias=AliasChoices("TRINO_DEFAULT_SCHEMA", "TRINO_SCHEMA"),
+    )
+    TRINO_HTTP_SCHEME: str = os.getenv("TRINO_HTTP_SCHEME", "http")
+    MOCK_EXECUTION: bool = str(os.getenv("MOCK_EXECUTION", "false")).lower() == "true"
+
     METADATA_CACHE_TTL_SECONDS: int = int(os.getenv("METADATA_CACHE_TTL_SECONDS", "86400"))
     METADATA_EXCLUDED_CATALOGS: str = "system"
     METADATA_EXCLUDED_SCHEMAS: str = (
@@ -36,7 +56,7 @@ class Settings(BaseSettings):
     METADATA_FILTER_DEBUG: bool = False
 
     class Config:
-        env_file = ".env"
+        env_file = str(BACKEND_DIR / ".env")
         extra = "ignore"
 
 settings = Settings()

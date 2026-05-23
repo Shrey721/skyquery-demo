@@ -1,6 +1,9 @@
 import trino
 from trino.auth import BasicAuthentication
 from app.models.connection import TrinoConnectionRequest
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def quote_identifier(identifier: str) -> str:
@@ -9,6 +12,31 @@ def quote_identifier(identifier: str) -> str:
 
 def qualified_name(*parts: str) -> str:
     return ".".join(quote_identifier(part) for part in parts if part)
+
+
+def connection_debug_info(conn_req: TrinoConnectionRequest, source: str = "unknown") -> dict:
+    return {
+        "source": source,
+        "host": conn_req.host,
+        "port": conn_req.port,
+        "user": conn_req.username,
+        "catalog": conn_req.default_catalog or "",
+        "schema": conn_req.default_schema or "",
+        "http_scheme": "https" if conn_req.ssl_enabled else "http",
+        "ssl_enabled": bool(conn_req.ssl_enabled),
+    }
+
+
+def cursor_query_id(cursor) -> str | None:
+    if cursor is None:
+        return None
+    query_id = getattr(cursor, "query_id", None)
+    if query_id:
+        return query_id
+    stats = getattr(cursor, "stats", None)
+    if isinstance(stats, dict):
+        return stats.get("queryId") or stats.get("query_id")
+    return None
 
 
 def get_trino_connection(conn_req: TrinoConnectionRequest):
@@ -30,6 +58,15 @@ def get_trino_connection(conn_req: TrinoConnectionRequest):
     if conn_req.default_schema:
         connect_kwargs["schema"] = conn_req.default_schema
 
+    logger.info(
+        "Creating Trino connection | final_endpoint=%s://%s:%s | user=%s | active_catalog=%s | active_schema=%s",
+        http_scheme,
+        conn_req.host,
+        conn_req.port,
+        conn_req.username,
+        conn_req.default_catalog or "",
+        conn_req.default_schema or "",
+    )
     conn = trino.dbapi.connect(**connect_kwargs)
     return conn
 
