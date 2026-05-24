@@ -1,10 +1,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
-from app.api.routes import connections, metadata, auth
+from app.api.routes import connections, metadata, auth, history
 from app.api.routes.flights import router as flights_router
 from app.models.connection import Base
 from app.models.user import User  # Import User to ensure tables are created
+from app.models.chat_history import ChatHistory  # Import ChatHistory to ensure tables are created
 from app.db.database import engine
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -44,6 +45,7 @@ app.add_middleware(
 app.include_router(connections.router, prefix=f"{settings.API_V1_STR}/connections", tags=["connections"])
 app.include_router(metadata.router, prefix=f"{settings.API_V1_STR}/metadata", tags=["metadata"])
 app.include_router(auth.router, prefix=f"{settings.API_V1_STR}/auth", tags=["auth"])
+app.include_router(history.router, prefix=f"{settings.API_V1_STR}/history", tags=["history"])
 # Import and register the NL-to-SQL query endpoint
 from app.api.routes.query import router as query_router
 app.include_router(query_router, tags=["query"])
