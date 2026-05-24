@@ -74,6 +74,15 @@ def should_handle_metadata_followup(question: str, context: Dict[str, Any] | Non
     return _is_previous_metadata(context) and _metadata_action_requested(question, context)
 
 
+def is_standalone_metadata_overview_request(question: str) -> bool:
+    q = question.lower()
+    if re.search(r"\b(distinct|unique|group\s+by|by\s+\w+|trend|average|avg|sum|count|delay|passenger|airline|airport|flight)\b", q):
+        return False
+    has_action = re.search(r"\b(show|list|what|which|display|get|available)\b", q)
+    has_metadata_object = re.search(r"\b(catalogs?|schemas?|tables?|data\s+sources?|sources?|databases?)\b", q)
+    return bool(has_action and has_metadata_object)
+
+
 def is_metadata_table_detail_request(question: str, context: Dict[str, Any] | None = None) -> bool:
     """Detect generic table-structure requests without assuming any domain table names.
 
@@ -363,6 +372,56 @@ def _metadata_sql_for_tables(tables: List[Dict[str, Any]], selected_table: Dict[
     return " UNION ALL ".join(selects) + " ORDER BY table_catalog, table_schema, table_name"
 
 
+def _metadata_table_overview_sql_by_catalog(tables: List[Dict[str, Any]]) -> Dict[str, str]:
+    by_catalog: Dict[str, Dict[str, set[str]]] = {}
+    for table in tables:
+        catalog = table.get("catalog")
+        schema_name = table.get("schema_name") or table.get("schema")
+        table_name = table.get("table_name") or table.get("name") or table.get("table")
+        if catalog and schema_name and table_name:
+            by_catalog.setdefault(str(catalog), {}).setdefault(str(schema_name), set()).add(str(table_name))
+
+    sql_by_catalog: Dict[str, str] = {}
+    for catalog, schemas in sorted(by_catalog.items()):
+        where_parts = []
+        schema_filter = ", ".join(_quote_literal(schema) for schema in sorted(schemas))
+        table_filter = ", ".join(
+            _quote_literal(table_name)
+            for schema_tables in schemas.values()
+            for table_name in sorted(schema_tables)
+        )
+        where_parts.append(f"table_schema IN ({schema_filter})")
+        where_parts.append(f"table_name IN ({table_filter})")
+        sql_by_catalog[catalog] = (
+            "SELECT table_catalog, table_schema, table_name "
+            f"FROM {_quote_identifier(catalog)}.information_schema.tables "
+            f"WHERE {' AND '.join(where_parts)} "
+            "ORDER BY table_schema, table_name"
+        )
+    return sql_by_catalog
+
+
+def _filter_rows_to_selected_tables(rows: List[Dict[str, Any]], tables: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    allowed = {
+        (
+            str(table.get("catalog") or ""),
+            str(table.get("schema_name") or table.get("schema") or ""),
+            str(table.get("table_name") or table.get("name") or table.get("table") or ""),
+        )
+        for table in tables
+    }
+    filtered = []
+    for row in rows:
+        key = (
+            str(row.get("table_catalog") or row.get("catalog") or ""),
+            str(row.get("table_schema") or row.get("schema_name") or row.get("schema") or ""),
+            str(row.get("table_name") or row.get("name") or row.get("table") or ""),
+        )
+        if key in allowed:
+            filtered.append(row)
+    return filtered
+
+
 def _pick_referenced_table(question: str, tables: List[Dict[str, Any]], context: Dict[str, Any] | None) -> Dict[str, Any] | None:
     selected = (context or {}).get("selected_table") or (context or {}).get("table")
     candidates = [selected] if selected else []
@@ -452,6 +511,115 @@ async def build_metadata_followup_response(
             "metadata_context": shaped["rendering"].get("metadata_context", {}),
             "routing_reason": "metadata_context_followup",
             "selected_metadata_strategy": strategy,
+        },
+        "rendering": shaped["rendering"],
+    }
+
+
+async def build_metadata_overview_response(
+    question: str,
+    schema: Dict[str, Any],
+    executor: Any | None = None,
+    request_id: str | None = None,
+    session_metadata: Dict[str, Any] | None = None,
+) -> Dict[str, Any]:
+    tables = _normalize_tables(schema)
+    sql_by_catalog = _metadata_table_overview_sql_by_catalog(tables)
+    rows: List[Dict[str, Any]] = []
+    catalog_diagnostics: List[Dict[str, Any]] = []
+    per_catalog_sql: List[str] = []
+
+    for catalog, sql in sql_by_catalog.items():
+        per_catalog_sql.append(sql)
+        try:
+            catalog_rows = await executor.execute(sql) if executor else []
+            catalog_rows = _filter_rows_to_selected_tables(catalog_rows, tables)
+            rows.extend(catalog_rows)
+            catalog_diagnostics.append({
+                "catalog": catalog,
+                "success": True,
+                "row_count": len(catalog_rows),
+                "came_from_retry": bool(getattr(executor, "last_execute_retried", False)),
+            })
+        except Exception as exc:
+            logger.warning("Metadata overview catalog query failed | catalog=%s | error=%s", catalog, exc)
+            catalog_diagnostics.append({"catalog": catalog, "success": False, "error": str(exc)})
+
+    if not rows:
+        rows = [
+            {
+                "table_catalog": table.get("catalog"),
+                "table_schema": table.get("schema_name") or table.get("schema"),
+                "table_name": table.get("table_name") or table.get("name") or table.get("table"),
+                "column_count": _column_count(table),
+            }
+            for table in tables
+        ]
+        if not catalog_diagnostics:
+            catalog_diagnostics = [{"catalog": table.get("catalog"), "success": True, "source": "cached_schema"} for table in tables]
+
+    rows.sort(key=lambda row: (
+        str(row.get("table_catalog") or row.get("catalog") or ""),
+        str(row.get("table_schema") or row.get("schema_name") or ""),
+        str(row.get("table_name") or ""),
+    ))
+    sql = ";\n".join(per_catalog_sql) if per_catalog_sql else _metadata_sql_for_tables(tables, None)
+    shaped = shape_result(rows, question=question, sql=sql, intent={"intent": "schema_exploration"})
+    summary = await generate_summary(question=question, sql=sql, result=shaped, schema=schema)
+    failures = [item for item in catalog_diagnostics if not item.get("success")]
+    if failures:
+        summary += f" Some catalogs could not be queried ({len(failures)} failure(s)); available sources are shown."
+
+    active_catalogs = sorted({str(table.get("catalog")) for table in tables if table.get("catalog")})
+    print(
+        "METADATA HEALTH DIAGNOSTICS:",
+        {
+            "requestId": request_id,
+            "active_catalogs_discovered": active_catalogs,
+            "selected_scope_catalogs": active_catalogs,
+            "selected_scope_schemas": sorted({str(table.get("schema_name") or table.get("schema")) for table in tables if table.get("schema_name") or table.get("schema")}),
+            "selected_scope_tables": sorted(_table_display_name(table) for table in tables),
+            "metadata_query_filtered": True,
+            "per_catalog_query_success_failure": catalog_diagnostics,
+            "final_result_source_count": len(rows),
+            "selected_intent": "schema_exploration",
+            "selected_rendering_mode": shaped["rendering"].get("mode"),
+            "response_came_from_retry": any(item.get("came_from_retry") for item in catalog_diagnostics),
+        },
+    )
+
+    return {
+        "intent": {"intent": "schema_exploration", "reason": "Deterministic metadata overview request."},
+        "result_intent": shaped["result_intent"],
+        "selected_tables": [],
+        "sql": sql,
+        "validation": {"valid": True, "is_valid": True, "errors": []},
+        "execution": {
+            "rows": shaped["rows"],
+            "preview": shaped["preview_rows"],
+            "columns": shaped["columns"],
+            "chart_suggestion": shaped["chart_suggestion"],
+            "visualization": shaped["visualization"],
+            "rendering": shaped["rendering"],
+        },
+        "summary": summary,
+        "metadata": {
+            "schema_tables": len(tables),
+            "mock_mode": False,
+            "llm_token_received": bool((session_metadata or {}).get("llm_token_received")),
+            "result_intent": shaped["result_intent"],
+            "metadata_context": shaped["rendering"].get("metadata_context", {}),
+            "routing_reason": "standalone_metadata_overview",
+            "selected_metadata_strategy": "per_catalog_information_schema_tables",
+            "active_catalogs_discovered": active_catalogs,
+            "selected_scope_catalogs": active_catalogs,
+            "selected_scope_schemas": sorted({str(table.get("schema_name") or table.get("schema")) for table in tables if table.get("schema_name") or table.get("schema")}),
+            "selected_scope_tables": sorted(_table_display_name(table) for table in tables),
+            "metadata_query_filtered": True,
+            "per_catalog_query_success_failure": catalog_diagnostics,
+            "final_result_source_count": len(rows),
+            "requestId": request_id,
+            "response_came_from_retry": any(item.get("came_from_retry") for item in catalog_diagnostics),
         },
         "rendering": shaped["rendering"],
     }

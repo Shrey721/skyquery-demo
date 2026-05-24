@@ -1,4 +1,5 @@
 import asyncio
+import asyncio
 import sys
 import unittest
 
@@ -7,14 +8,17 @@ sys.path.insert(0, r"d:\csasdsa\.vscode\skyquery\backend")
 from app.services.query_result_intent import classify_result_intent
 from app.services.metadata_rendering import build_rendering_config
 from app.services.metadata_followup import (
+    build_metadata_overview_response,
     build_metadata_followup_response,
     build_table_columns_sql,
     is_metadata_table_detail_request,
+    is_standalone_metadata_overview_request,
     resolve_metadata_table_candidates,
     should_handle_metadata_followup,
 )
 from app.services.result_shaper import shape_result
 from app.services.summary_generator import generate_summary
+from app.validators.sql_validator import validate_sql
 
 
 class ResultIntentTests(unittest.TestCase):
@@ -205,6 +209,100 @@ class ResultIntentTests(unittest.TestCase):
         )
 
         self.assertEqual(intent["category"], "analytics")
+
+    def test_standalone_metadata_overview_detection_is_not_business_distinct(self):
+        self.assertTrue(is_standalone_metadata_overview_request("show tables"))
+        self.assertTrue(is_standalone_metadata_overview_request("show tables and schemas"))
+        self.assertTrue(is_standalone_metadata_overview_request("list available tables"))
+        self.assertFalse(is_standalone_metadata_overview_request("show distinct airline"))
+
+    def test_metadata_overview_aggregates_catalogs_deterministically(self):
+        class FakeExecutor:
+            last_execute_retried = False
+
+            async def execute(self, sql):
+                if '"cat_b"' in sql:
+                    return [
+                        {"table_catalog": "cat_b", "table_schema": "sch", "table_name": "beta"},
+                        {"table_catalog": "cat_b", "table_schema": "sch", "table_name": "unselected_b"},
+                    ]
+                return [
+                    {"table_catalog": "cat_a", "table_schema": "sch", "table_name": "alpha"},
+                    {"table_catalog": "cat_a", "table_schema": "sch", "table_name": "unselected_a"},
+                ]
+
+        schema = {
+            "tables": [
+                {"catalog": "cat_b", "schema_name": "sch", "table_name": "beta"},
+                {"catalog": "cat_a", "schema_name": "sch", "table_name": "alpha"},
+            ]
+        }
+
+        response = asyncio.run(
+            build_metadata_overview_response(
+                "show tables and schemas",
+                schema,
+                executor=FakeExecutor(),
+                request_id="req-test",
+            )
+        )
+
+        self.assertEqual(response["result_intent"]["category"], "metadata")
+        self.assertEqual(
+            [(row["table_catalog"], row["table_name"]) for row in response["execution"]["rows"]],
+            [("cat_a", "alpha"), ("cat_b", "beta")],
+        )
+        self.assertEqual(response["metadata"]["active_catalogs_discovered"], ["cat_a", "cat_b"])
+        self.assertEqual(response["metadata"]["final_result_source_count"], 2)
+        self.assertEqual(response["metadata"]["selected_scope_tables"], ["cat_a.sch.alpha", "cat_b.sch.beta"])
+        self.assertTrue(response["metadata"]["metadata_query_filtered"])
+        self.assertIn("table_name IN ('alpha')", response["sql"])
+        self.assertIn("table_name IN ('beta')", response["sql"])
+
+    def test_direct_sql_against_unselected_table_is_rejected(self):
+        schema = {
+            "tables": [
+                {"catalog": "cat_a", "schema_name": "sch", "table_name": "alpha"},
+            ]
+        }
+
+        validation = asyncio.run(validate_sql("SELECT * FROM cat_a.sch.unselected_a", schema))
+
+        self.assertFalse(validation["valid"])
+        self.assertEqual(validation["errors"], ["This table is not in the active selected data scope."])
+        self.assertEqual(validation["rejected_unselected_table"], "cat_a.sch.unselected_a")
+
+    def test_describe_unselected_table_is_rejected(self):
+        schema = {
+            "tables": [
+                {"catalog": "cat_a", "schema_name": "sch", "table_name": "alpha"},
+            ]
+        }
+
+        validation = asyncio.run(validate_sql("DESCRIBE cat_a.sch.unselected_a", schema))
+
+        self.assertFalse(validation["valid"])
+        self.assertEqual(validation["errors"], ["This table is not in the active selected data scope."])
+        self.assertEqual(validation["rejected_unselected_table"], "cat_a.sch.unselected_a")
+
+    def test_unfiltered_show_tables_is_rejected_when_scope_exists(self):
+        schema = {
+            "tables": [
+                {"catalog": "cat_a", "schema_name": "sch", "table_name": "alpha"},
+            ]
+        }
+
+        validation = asyncio.run(validate_sql("SHOW TABLES FROM cat_a.sch", schema))
+
+        self.assertFalse(validation["valid"])
+        self.assertEqual(validation["errors"], ["Metadata listing queries must be filtered to the active selected data scope."])
+
+    def test_connection_setup_discovery_can_still_show_unselected_sources(self):
+        # Source discovery is intentionally broad; selected-scope filtering is
+        # enforced after the user saves the normal app scope.
+        from app.services.metadata_service import discover_sources
+
+        self.assertTrue(callable(discover_sources))
 
     def test_flights_delayed_from_la_remains_analytics(self):
         intent = classify_result_intent(

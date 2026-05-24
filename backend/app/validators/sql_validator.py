@@ -5,6 +5,7 @@ FORBIDDEN = ["DROP", "DELETE", "UPDATE", "INSERT", "ALTER", "TRUNCATE", "CREATE"
 METADATA_SCHEMAS = {"information_schema"}
 METADATA_OBJECTS = {"columns", "tables", "schemata"}
 READ_ONLY_PREFIXES = ("SELECT", "SHOW", "DESCRIBE", "DESC")
+UNSELECTED_SCOPE_ERROR = "This table is not in the active selected data scope."
 
 
 def _strip_identifier_quotes(value: str) -> str:
@@ -54,6 +55,17 @@ def _is_read_only_metadata_statement(upper_sql: str) -> bool:
     )
 
 
+def _referenced_describe_table(sql: str) -> str | None:
+    match = re.match(r"^\s*(?:DESCRIBE|DESC)\s+([\"A-Za-z0-9_][\"A-Za-z0-9_.$-]*)", sql, re.IGNORECASE)
+    if not match:
+        return None
+    return _strip_identifier_quotes(match.group(1).strip().rstrip(",;"))
+
+
+def _references_unfiltered_table_listing(upper_sql: str) -> bool:
+    return bool(re.match(r"^\s*SHOW\s+(TABLES|SCHEMAS|CATALOGS|COLUMNS)\b", upper_sql))
+
+
 async def validate_sql(sql: str, schema: Dict[str, Any] | None = None) -> Dict[str, Any]:
     if not sql or not isinstance(sql, str):
         return {"valid": False, "is_valid": False, "errors": ["SQL is empty"]}
@@ -71,10 +83,28 @@ async def validate_sql(sql: str, schema: Dict[str, Any] | None = None) -> Dict[s
     if cleaned.count(";") > 1:
         return {"valid": False, "is_valid": False, "errors": ["Multiple SQL statements are not allowed"]}
 
+    allowed_tables = _allowed_tables(schema)
     if _is_read_only_metadata_statement(upper):
+        if not allowed_tables:
+            return {"valid": True, "is_valid": True, "errors": []}
+        describe_ref = _referenced_describe_table(cleaned)
+        if describe_ref:
+            if describe_ref.lower() in allowed_tables:
+                return {"valid": True, "is_valid": True, "errors": []}
+            return {
+                "valid": False,
+                "is_valid": False,
+                "errors": [UNSELECTED_SCOPE_ERROR],
+                "rejected_unselected_table": describe_ref,
+            }
+        if _references_unfiltered_table_listing(upper):
+            return {
+                "valid": False,
+                "is_valid": False,
+                "errors": ["Metadata listing queries must be filtered to the active selected data scope."],
+            }
         return {"valid": True, "is_valid": True, "errors": []}
 
-    allowed_tables = _allowed_tables(schema)
     if allowed_tables:
         for ref in _referenced_tables(cleaned):
             if _is_metadata_reference(ref):
@@ -91,9 +121,8 @@ async def validate_sql(sql: str, schema: Dict[str, Any] | None = None) -> Dict[s
                 return {
                     "valid": False,
                     "is_valid": False,
-                    "errors": [
-                        "The query references tables outside the selected data sources. The selected data sources do not contain enough information."
-                    ],
+                    "errors": [UNSELECTED_SCOPE_ERROR],
+                    "rejected_unselected_table": ref,
                 }
 
     return {"valid": True, "is_valid": True, "errors": []}

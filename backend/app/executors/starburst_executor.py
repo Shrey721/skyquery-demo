@@ -36,6 +36,7 @@ class StarburstExecutor:
             return
 
         self.connection = None
+        self.last_execute_retried = False
 
     def _connect(self):
         db = SessionLocal()
@@ -108,6 +109,7 @@ class StarburstExecutor:
         self.connection = None
 
     async def execute(self, sql: str) -> List[Dict[str, Any]]:
+        self.last_execute_retried = False
 
         # Clean SQL before sending to Trino
         sql = sql.strip().rstrip(";").strip()
@@ -162,6 +164,7 @@ class StarburstExecutor:
                 )
                 self._reset_connection()
                 if attempt == 0:
+                    self.last_execute_retried = True
                     logger.info("Retrying Trino execution with a fresh connection")
                     continue
                 raise RuntimeError(str(e))

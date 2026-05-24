@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from typing import Any, Dict
+from uuid import uuid4
 import logging
 
 from app.pipeline.nl_sql_pipeline import NLtoSQLPipeline
@@ -14,6 +15,7 @@ router = APIRouter()
 class QueryRequest(BaseModel):
     question: str
     session_id: str | None = None
+    request_id: str | None = None
     query_context: Dict[str, Any] | None = None
 
 
@@ -49,6 +51,9 @@ async def query_endpoint(request: QueryRequest, req: Request):
 
         print("QUERY ROUTE TOKEN EXISTS:", bool(copilot_token))
 
+        request_id = request.request_id or str(uuid4())
+        logger.info("query_started | requestId=%s | session_id=%s", request_id, chat_session_id)
+
         pipeline = NLtoSQLPipeline()
 
         result = await pipeline.process(
@@ -56,7 +61,9 @@ async def query_endpoint(request: QueryRequest, req: Request):
             session_id=chat_session_id,
             copilot_token=copilot_token,
             query_context=request.query_context,
+            request_id=request_id,
         )
+        result["requestId"] = request_id
 
         return result
 
