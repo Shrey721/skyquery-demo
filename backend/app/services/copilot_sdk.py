@@ -1,4 +1,5 @@
 from copilot import CopilotClient, SubprocessConfig
+from app.core.config import settings
 
 async def approve_permission(*args, **kwargs):
     return {"approve": True}
@@ -31,8 +32,7 @@ async def get_copilot_chat_completion(
         print("[Copilot SDK] Client started")
 
         # --- COPILOT AUTH DIAGNOSTICS ---
-        import os
-        env_token = os.getenv("GITHUB_COPILOT_TOKEN", "")
+        env_token = settings.GITHUB_COPILOT_TOKEN
         token_source = "NONE"
         if github_token:
             if env_token and github_token == env_token:

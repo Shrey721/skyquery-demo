@@ -1,11 +1,14 @@
 import sys
-sys.path.insert(0, r'd:\csasdsa\.vscode\skyquery\backend')
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from app.db.database import SessionLocal
 from app.services.metadata_service import discover_and_cache_metadata, get_cached_metadata
 from app.services.entity_resolution_service import extract_entities
 from app.services.relationship_inference_service import infer_relationships
 from app.services.table_selector import select_tables
+from app.services.redis_cache import redis_client
 import asyncio
 
 async def test_all():
@@ -44,14 +47,12 @@ async def test_all():
         print("Selected Tables:", selected)
         
         # Test full NLtoSQLPipeline
-        import redis
         from app.pipeline.nl_sql_pipeline import NLtoSQLPipeline
-        r = redis.Redis.from_url('redis://localhost:6379/0', decode_responses=True)
         # Find active token key
-        token_keys = r.keys('copilot_token:*')
+        token_keys = redis_client.keys('copilot_token:*')
         if token_keys:
             token_key = token_keys[0]
-            token = r.get(token_key)
+            token = redis_client.get(token_key)
             print(f"\n--- TESTING NLtoSQLPipeline WITH TOKEN {token_key} ---")
             pipeline = NLtoSQLPipeline()
             res = await pipeline.process(question, session_id="test_session", copilot_token=token)

@@ -25,7 +25,7 @@ async def query_endpoint(request: QueryRequest, req: Request):
         from app.api.routes.auth import get_session_credentials
         user_id, auth_session_id = get_session_credentials(req)
         
-        chat_session_id = request.session_id or "demo"
+        chat_session_id = request.session_id or f"query-{uuid4()}"
         token_session_id = auth_session_id or chat_session_id
         
         token_key = f"copilot_token:{token_session_id}"

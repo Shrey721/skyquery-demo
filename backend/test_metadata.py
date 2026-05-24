@@ -1,8 +1,9 @@
 import urllib.request
 import json
 import urllib.error
+from app.core.config import settings
 
-base_url = "http://127.0.0.1:8000/api/v1/metadata"
+base_url = f"{settings.BACKEND_PUBLIC_URL}{settings.API_V1_STR}/metadata"
 
 # 1. Discover Metadata
 print("Testing /discover...")

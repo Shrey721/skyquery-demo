@@ -105,11 +105,7 @@ async def select_tables(
     tables = normalize_tables(schema)
 
     if not tables:
-        return [{
-            "table": "unknown",
-            "score": 0.5,
-            "reason": "fallback table because schema metadata was empty"
-        }]
+        return []
 
     q = question.lower()
     selected = []

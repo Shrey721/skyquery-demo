@@ -2,8 +2,9 @@ import asyncio
 import asyncio
 import sys
 import unittest
+from pathlib import Path
 
-sys.path.insert(0, r"d:\csasdsa\.vscode\skyquery\backend")
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from app.services.query_result_intent import classify_result_intent
 from app.services.metadata_rendering import build_rendering_config
@@ -199,7 +200,7 @@ class ResultIntentTests(unittest.TestCase):
         self.assertTrue(shaped["rendering"]["chart_default_active"])
         self.assertIn("geo", shaped["rendering"]["allowed_visualizations"])
         self.assertEqual(shaped["rendering"]["template_source"], "analytics_result_rendering")
-        self.assertIn("aviation", shaped["rendering"]["header"].lower())
+        self.assertEqual(shaped["rendering"]["header"], "Analysis of the returned dataset.")
 
     def test_delay_trends_by_airline_remains_analytics(self):
         intent = classify_result_intent(

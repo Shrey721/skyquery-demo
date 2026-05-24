@@ -1,4 +1,3 @@
-import os
 import re
 import json
 import logging
@@ -6,6 +5,7 @@ from typing import List, Dict, Any
 
 from app.services.prompt_loader import load_prompt
 from app.services.copilot_sdk import get_copilot_chat_completion
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +35,7 @@ def _extract_table_name(selected_tables: Any) -> str:
     selected_tables = _ensure_list(selected_tables)
 
     if not selected_tables:
-        return "flights"
+        return ""
 
     first = selected_tables[0]
 
@@ -44,7 +44,7 @@ def _extract_table_name(selected_tables: Any) -> str:
             first.get("table")
             or first.get("table_name")
             or first.get("name")
-            or "flights"
+            or ""
         )
 
     return str(first)
@@ -145,16 +145,16 @@ async def generate_sql(
         resolved_token = (
             copilot_token
             or kwargs.get("github_token")
-            or os.getenv("GITHUB_COPILOT_TOKEN", "")
+            or settings.GITHUB_COPILOT_TOKEN
         )
 
         print("SQL GENERATOR RECEIVED TOKEN:", bool(copilot_token))
-        print("ENV TOKEN EXISTS:", bool(os.getenv("GITHUB_COPILOT_TOKEN", "")))
+        print("ENV TOKEN EXISTS:", bool(settings.GITHUB_COPILOT_TOKEN))
         print("FINAL TOKEN EXISTS:", bool(resolved_token))
 
         response = await get_copilot_chat_completion(
             github_token=resolved_token,
-            model="gpt-4.1",
+            model=settings.LLM_MODEL,
             prompt=prompt,
         )
 
@@ -191,19 +191,9 @@ async def generate_sql(
         return generated
 
     except Exception as e:
-        print("❌ USING FALLBACK SQL")
-        print("FALLBACK REASON:", repr(e))
+        print("SQL generation failed.")
+        print("FAILURE REASON:", repr(e))
         print("=========================================\n")
 
-        fallback_sql = f"""
-SELECT COUNT(*) AS result_count
-FROM {table_name}
-LIMIT 100
-""".strip()
-
-        return {
-            "assumption": "Fallback SQL was used because LLM SQL generation failed.",
-            "sql": fallback_sql,
-            "chart_type": "table",
-            "explanation": f"Generated fallback SELECT query using table {table_name}.",
-        }
+        logger.error("LLM SQL generation failed: %s", e)
+        raise RuntimeError(f"SQL generation failed: {e}") from e

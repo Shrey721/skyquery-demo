@@ -40,7 +40,7 @@ class ConnectionRecord(Base):
 
 class TrinoConnectionRequest(BaseModel):
     host: str = Field(..., description="Trino coordinator hostname")
-    port: int = Field(8081, description="Trino coordinator port")
+    port: int = Field(..., description="Trino coordinator port")
     default_catalog: Optional[str] = Field(
         None,
         alias="catalog",

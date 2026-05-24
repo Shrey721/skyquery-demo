@@ -1,7 +1,8 @@
 import sys
 import unittest
+from pathlib import Path
 
-sys.path.insert(0, r"d:\csasdsa\.vscode\skyquery\backend")
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from app.services.execution_errors import (
     build_connector_error_response,

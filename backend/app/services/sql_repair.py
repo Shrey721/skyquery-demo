@@ -62,7 +62,7 @@ async def repair_sql(
     **kwargs
 ) -> Dict[str, Any]:
     """
-    Simple fallback SQL repair service.
+    Deterministic SQL repair service for supported Trino syntax issues.
     Handles Trino dialect discrepancies like ILIKE operators.
     """
 
@@ -73,7 +73,7 @@ async def repair_sql(
     )
 
     repaired_sql = failed_sql.strip()
-    explanation = "Applied fallback SQL repair logic."
+    explanation = "Applied supported SQL syntax corrections."
     repaired_sql = qualify_information_schema_with_catalog_filter(repaired_sql)
 
     # Check for Trino-unsupported ILIKE operator in failed SQL or in error messages
@@ -123,7 +123,7 @@ async def repair_sql(
 
         explanation = "Detected unsupported timestamp-to-double cast or subtraction in Trino. Repaired by converting to date_diff('minute', start, end)."
 
-    # Remove dangerous statements if present
+    # Never convert unsafe or malformed statements into unrelated result data.
     forbidden = [
         "DROP",
         "DELETE",
@@ -138,13 +138,12 @@ async def repair_sql(
 
     for keyword in forbidden:
         if keyword in upper_sql:
-            repaired_sql = "SELECT 1 AS blocked_query"
-            break
+            raise ValueError(f"Unsafe SQL cannot be repaired: forbidden keyword {keyword}.")
 
     # Ensure read-only SQL. Metadata statements such as SHOW/DESCRIBE are valid
     # read-only Trino commands and should not be converted into analytics SQL.
     if not repaired_sql.upper().startswith(("SELECT", "SHOW", "DESCRIBE", "DESC")):
-        repaired_sql = "SELECT 1 AS repaired_query"
+        raise ValueError("SQL repair cannot produce a safe read-only query.")
 
     # Ensure LIMIT
     if repaired_sql.upper().startswith("SELECT") and "LIMIT" not in repaired_sql.upper():

@@ -1,69 +1,66 @@
-# SkyQuery Localhost Development Guide
+# SkyQuery
 
-This guide provides instructions for running and developing SkyQuery fully in **localhost mode**.
+SkyQuery contains a FastAPI backend, a Next.js frontend, and Docker Compose infrastructure for local supporting services.
 
-## System Prerequisites
-Ensure you have the following running on your machine:
-- **Docker Compose** (for Trino, Postgres, and Redis)
-- **Python 3.10+** (for FastAPI backend)
-- **Node.js 18+** (for Next.js frontend)
+## Configuration
 
----
-
-## 1. Infrastructure Setup (Docker)
-
-To spin up the databases (Trino, Postgres) and session store (Redis) locally:
+Create an environment file at the repository root before starting the application:
 
 ```bash
-cd infrastructure
-docker compose up -d
+cp .env.example .env
 ```
 
-Verify that all services are healthy and running on their respective ports:
-- **Trino Coordinate**: `http://localhost:8080`
-- **Postgres Database**: `localhost:5432`
-- **Redis Cache**: `localhost:6379`
+On Windows PowerShell:
 
----
+```powershell
+Copy-Item .env.example .env
+```
 
-## 2. Backend Startup
+Edit `.env` for your environment. The frontend is a Next.js application, but it accepts `VITE_API_BASE_URL` and `VITE_APP_ENV` from the shared root environment file for deployment consistency. Existing `NEXT_PUBLIC_API_BASE_URL` and `NEXT_PUBLIC_APP_ENV` variables remain supported for local migration.
 
-1. Open a terminal in the `backend` directory.
-2. Ensure your local `.env` contains:
-   ```env
-   TRINO_HOST=localhost
-   TRINO_PORT=8080
-   TRINO_USER=admin
-   TRINO_CATALOG=aviation
-   TRINO_SCHEMA=public
-   MOCK_EXECUTION=false
-   FRONTEND_URL=http://localhost:3000
-   ```
-3. Run the backend dev server:
-   ```bash
-   uvicorn app.main:app --reload
-   ```
-   The backend API will be available at `http://localhost:8000`.
+For `APP_ENV=production`, configure at minimum:
 
----
+```env
+FRONTEND_URL=
+CORS_ORIGINS=
+BACKEND_PUBLIC_URL=
+SECRET_KEY=
+DATABASE_URL=
+VITE_API_BASE_URL=
+REDIS_HOST=
+TRINO_HOST=
+TRINO_USER=
+TRINO_CATALOG=
+TRINO_SCHEMA=
+GITHUB_CLIENT_ID=
+GITHUB_CLIENT_SECRET=
+GITHUB_CALLBACK_URL=
+LLM_PROVIDER=
+LLM_MODEL=
+```
 
-## 3. Frontend Startup
+Set the provider API key required by `LLM_PROVIDER`, where applicable. `ENABLE_MOCK_DATA` and `ENABLE_DEV_FALLBACKS` must remain `false` in production.
 
-1. Open a terminal in your Next.js frontend directory (`c:\Users\shrey\Downloads\title-gradient-refinement (1)`).
-2. Ensure your `.env.local` contains:
-   ```env
-   NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
-   ```
-3. Run the Next.js development server:
-   ```bash
-   npm run dev
-   ```
-   The frontend UI will be available at `http://localhost:3000`.
+## Local Run
 
----
+Start the currently defined infrastructure service using the shared environment file:
 
-## 4. Key Localhost Features & Flows
+```bash
+docker compose --env-file .env -f infrastructure/docker-compose.yml up -d
+```
 
-- **GitHub Copilot Auth Flow**: When continuing with GitHub, the backend handles OAuth session exchanges and persists user sessions inside the local Redis cache. Starlette Session middleware is set to `lax` and `https_only=False` to ensure smooth local cookie exchanges over HTTP.
-- **REST API Port**: The frontend interacts directly with `http://localhost:8000` via headers and REST queries.
-- **Robust Session Restoration**: In case browsers block cookie exchanges on localhost, the frontend will automatically attach authorization headers (`Authorization` and `X-Session-ID`) to every fetch call, ensuring seamless session validation.
+Start the backend:
+
+```bash
+cd backend
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+Start the frontend on the port configured in `.env.example`:
+
+```bash
+cd frontend
+npm run dev -- --port 5173
+```
+
+Configure `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, and `GITHUB_CALLBACK_URL` for the GitHub authentication flow. Configure the Trino or Starburst variables for the coordinator that queries should use when no saved connection has been selected.

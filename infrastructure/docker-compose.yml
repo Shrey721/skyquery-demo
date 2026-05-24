@@ -1,35 +1,16 @@
 services:
-  trino:
-    image: trinodb/trino:latest
-    container_name: trino-coordinator
-    ports:
-      - "8080:8080"
-    volumes:
-      - ./trino/catalog:/etc/trino/catalog
-    depends_on:
-      postgres:
-        condition: service_healthy
-
-  postgres:
-    image: postgres:15
-    container_name: aviation-db
-    environment:
-      POSTGRES_USER: trino
-      POSTGRES_PASSWORD: trino_password
-      POSTGRES_DB: aviation
-    ports:
-      - "5432:5432"
-    volumes:
-      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U trino -d aviation"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
 
   redis:
-    image: redis:alpine
-    container_name: skyquery-redis
+    image: ${REDIS_IMAGE:-redis:alpine}
+    container_name: ${REDIS_CONTAINER_NAME:-skyquery-redis}
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT:-6379}:6379"
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+    command: >
+      sh -c 'if [ -n "$$REDIS_PASSWORD" ]; then exec redis-server --appendonly yes --requirepass "$$REDIS_PASSWORD"; else exec redis-server --appendonly yes; fi'
+    volumes:
+      - redis_data:/data
 
+volumes:
+  redis_data:

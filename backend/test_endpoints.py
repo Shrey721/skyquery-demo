@@ -1,16 +1,17 @@
 import urllib.request
 import json
+from app.core.config import settings
 
-base_url = "http://127.0.0.1:8000/api/v1/connections"
+base_url = f"{settings.BACKEND_PUBLIC_URL}{settings.API_V1_STR}/connections"
 
 data = {
-    "host": "localhost",
-    "port": 8081,
-    "catalog": "postgres",
-    "schema": "public",
-    "username": "trino",
-    "password": "",
-    "ssl": False
+    "host": settings.TRINO_HOST,
+    "port": settings.TRINO_PORT,
+    "catalog": settings.TRINO_DEFAULT_CATALOG,
+    "schema": settings.TRINO_DEFAULT_SCHEMA,
+    "username": settings.TRINO_USER,
+    "password": settings.TRINO_PASSWORD,
+    "ssl": settings.TRINO_HTTP_SCHEME == "https",
 }
 
 req_data = json.dumps(data).encode("utf-8")

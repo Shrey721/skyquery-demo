@@ -1,4 +1,3 @@
-import os
 import logging
 import json
 import re
@@ -8,6 +7,7 @@ from typing import Dict, Any, List
 
 from app.services.prompt_loader import load_prompt
 from app.services.copilot_sdk import get_copilot_chat_completion
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +40,7 @@ def _ensure_list(value: Any) -> list:
 
 def _extract_table_name(selected_tables: Any) -> str:
     if not selected_tables:
-        return "flight_ops"
+        return ""
 
     first = selected_tables[0]
 
@@ -49,7 +49,7 @@ def _extract_table_name(selected_tables: Any) -> str:
             first.get("table")
             or first.get("name")
             or first.get("table_name")
-            or "flight_ops"
+            or ""
         )
 
     return str(first)
@@ -163,11 +163,11 @@ async def generate_sql(
     resolved_token = (
         copilot_token
         or kwargs.get("github_token")
-        or os.getenv("GITHUB_COPILOT_TOKEN", "")
+        or settings.GITHUB_COPILOT_TOKEN
     )
 
     print("SQL GENERATOR RECEIVED TOKEN:", bool(copilot_token))
-    print("ENV TOKEN EXISTS:", bool(os.getenv("GITHUB_COPILOT_TOKEN", "")))
+    print("ENV TOKEN EXISTS:", bool(settings.GITHUB_COPILOT_TOKEN))
     print("FINAL TOKEN EXISTS:", bool(resolved_token))
 
     max_retries = 1
@@ -181,7 +181,7 @@ async def generate_sql(
         try:
             response = await get_copilot_chat_completion(
                 github_token=resolved_token,
-                model="gpt-4.1",
+                model=settings.LLM_MODEL,
                 prompt=prompt
             )
 
@@ -218,19 +218,9 @@ async def generate_sql(
             print(f"❌ Attempt {attempt + 1} failed: {repr(e)}")
             logger.warning(f"LLM SQL generation attempt {attempt + 1} failed. Error: {e}")
 
-    print("❌ ALL LLM ATTEMPTS FAILED. USING FALLBACK SQL")
-    print("FINAL FALLBACK REASON:", repr(last_error))
+    print("SQL generation failed after all attempts.")
+    print("FINAL FAILURE REASON:", repr(last_error))
     print("=========================================\n")
 
-    fallback_sql = f"""
-SELECT COUNT(*) AS result_count
-FROM {table_name}
-LIMIT 100
-""".strip()
-
-    return {
-        "assumption": f"Fallback SQL was used because LLM SQL generation failed after retries. Error: {str(last_error)}",
-        "sql": fallback_sql,
-        "chart_type": "table",
-        "explanation": f"Generated a safe fallback SELECT query using table {table_name} due to an error."
-    }
+    logger.error("LLM SQL generation failed after retries: %s", last_error)
+    raise RuntimeError(f"SQL generation failed after retries: {last_error}")

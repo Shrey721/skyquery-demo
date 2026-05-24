@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from typing import Optional
 from pydantic import BaseModel
 import uuid
+from urllib.parse import urlencode
 
 from app.core.config import settings
 from app.db.database import get_db
@@ -13,12 +14,6 @@ from app.models.user import User, UserResponse
 from app.services.redis_cache import redis_client
 
 router = APIRouter()
-
-GITHUB_AUTHORIZE_URL = "https://github.com/login/oauth/authorize"
-GITHUB_ACCESS_TOKEN_URL = "https://github.com/login/oauth/access_token"
-GITHUB_USER_API_URL = "https://api.github.com/user"
-GITHUB_EMAILS_API_URL = "https://api.github.com/user/emails"
-COPILOT_COMPLETIONS_URL = "https://api.githubcopilot.com/chat/completions"
 
 class CopilotTestRequest(BaseModel):
     prompt: str
@@ -29,7 +24,13 @@ def login_via_github():
     if not settings.GITHUB_CLIENT_ID:
         raise HTTPException(status_code=500, detail="GitHub Client ID not configured")
     
-    url = f"{GITHUB_AUTHORIZE_URL}?client_id={settings.GITHUB_CLIENT_ID}&scope=user:email&prompt=consent"
+    params = {
+        "client_id": settings.GITHUB_CLIENT_ID,
+        "redirect_uri": settings.GITHUB_CALLBACK_URL,
+        "scope": "user:email",
+        "prompt": "consent",
+    }
+    url = f"{settings.GITHUB_AUTHORIZE_URL}?{urlencode(params)}"
     return RedirectResponse(url)
 
 @router.get("/github/callback")
@@ -40,12 +41,13 @@ async def github_callback(request: Request, code: str, db: Session = Depends(get
     async with httpx.AsyncClient() as client:
         # Get access token
         token_response = await client.post(
-            GITHUB_ACCESS_TOKEN_URL,
+            settings.GITHUB_ACCESS_TOKEN_URL,
             headers={"Accept": "application/json"},
             data={
                 "client_id": settings.GITHUB_CLIENT_ID,
                 "client_secret": settings.GITHUB_CLIENT_SECRET,
                 "code": code,
+                "redirect_uri": settings.GITHUB_CALLBACK_URL,
             }
         )
         token_data = token_response.json()
@@ -58,7 +60,7 @@ async def github_callback(request: Request, code: str, db: Session = Depends(get
         
         # Get user info
         user_response = await client.get(
-            GITHUB_USER_API_URL,
+            settings.GITHUB_USER_API_URL,
             headers={
                 "Authorization": f"Bearer {access_token}",
                 "Accept": "application/json"
@@ -74,7 +76,7 @@ async def github_callback(request: Request, code: str, db: Session = Depends(get
         email = user_info.get("email")
         if not email:
             email_response = await client.get(
-                GITHUB_EMAILS_API_URL,
+                settings.GITHUB_EMAILS_API_URL,
                 headers={
                     "Authorization": f"Bearer {access_token}",
                     "Accept": "application/json"
@@ -191,7 +193,7 @@ async def get_token_status(request: Request):
         
     async with httpx.AsyncClient() as client:
         user_response = await client.get(
-            GITHUB_USER_API_URL,
+            settings.GITHUB_USER_API_URL,
             headers={
                 "Authorization": f"Bearer {token}",
                 "Accept": "application/json"

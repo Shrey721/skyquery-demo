@@ -1,15 +1,10 @@
 import logging
-from typing import Dict, Any
+from typing import Any, Dict
 
 logger = logging.getLogger(__name__)
 
-def classify_intent(question: str, metadata: Dict[str, Any], history: list) -> Dict[str, Any]:
-    """Classify user intent.
 
-    A real implementation would call an LLM with a system prompt stored in
-    `backend/prompts/intent.txt`. Here we return a dummy intent for illustration.
-    """
+def classify_intent(question: str, metadata: Dict[str, Any], history: list) -> Dict[str, Any]:
+    """Classify user intent for legacy compatibility."""
     logger.debug("Classifying intent for question: %s", question)
-    # Placeholder logic – in production replace with LLM call
-    intent = "information_retrieval"
-    return {"intent": intent, "confidence": 1.0}
+    return {"intent": "information_retrieval", "confidence": 1.0}

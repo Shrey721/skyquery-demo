@@ -172,7 +172,7 @@ def build_rendering_config(
     # for data with a usable dimension plus numeric measure.
     return {
         "mode": category or "analytics",
-        "header": "Here is the localized analysis of the filtered aviation dataset.",
+        "header": "Analysis of the returned dataset.",
         "title": "Analytical results",
         "possible_reason": "",
         "summary_style": "analytics",
