@@ -21,12 +21,12 @@ def discover_sources(db: Session = Depends(get_db)):
 
 
 @router.post("/selected-sources")
-def save_selected_sources(request: SelectedSourcesRequest):
+def save_selected_sources(request: SelectedSourcesRequest, db: Session = Depends(get_db)):
     """
     Persists the selected AI context scope and clears old schema metadata.
     """
     try:
-        selected_sources = metadata_service.save_selected_sources(request)
+        selected_sources = metadata_service.save_selected_sources(request, db)
         return {"selected_sources": [source.model_dump(by_alias=True) for source in selected_sources]}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

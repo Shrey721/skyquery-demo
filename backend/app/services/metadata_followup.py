@@ -83,6 +83,18 @@ def is_standalone_metadata_overview_request(question: str) -> bool:
     return bool(has_action and has_metadata_object)
 
 
+def is_standalone_metadata_count_request(question: str) -> bool:
+    q = re.sub(r"\s+", " ", question.lower()).strip()
+    if re.search(r"\b(delay|passenger|airline|airport|flight|row|record)\b", q):
+        return False
+    return bool(
+        re.search(
+            r"\b(?:how many|count(?: of)?|number of|total(?: number of)?)\s+(?:available\s+)?tables?\b",
+            q,
+        )
+    )
+
+
 def is_metadata_table_detail_request(question: str, context: Dict[str, Any] | None = None) -> bool:
     """Detect generic table-structure requests without assuming any domain table names.
 
@@ -401,6 +413,32 @@ def _metadata_table_overview_sql_by_catalog(tables: List[Dict[str, Any]]) -> Dic
     return sql_by_catalog
 
 
+def _metadata_table_count_sql_by_catalog(tables: List[Dict[str, Any]]) -> Dict[str, str]:
+    by_catalog: Dict[str, Dict[str, set[str]]] = {}
+    for table in tables:
+        catalog = table.get("catalog")
+        schema_name = table.get("schema_name") or table.get("schema")
+        table_name = table.get("table_name") or table.get("name") or table.get("table")
+        if catalog and schema_name and table_name:
+            by_catalog.setdefault(str(catalog), {}).setdefault(str(schema_name), set()).add(str(table_name))
+
+    sql_by_catalog: Dict[str, str] = {}
+    for catalog, schemas in sorted(by_catalog.items()):
+        selected_pairs = [
+            (
+                f"(table_schema = {_quote_literal(schema_name)} "
+                f"AND table_name IN ({', '.join(_quote_literal(name) for name in sorted(table_names))}))"
+            )
+            for schema_name, table_names in sorted(schemas.items())
+        ]
+        sql_by_catalog[catalog] = (
+            "SELECT COUNT(*) AS table_count "
+            f"FROM {_quote_identifier(catalog)}.information_schema.tables "
+            f"WHERE {' OR '.join(selected_pairs)}"
+        )
+    return sql_by_catalog
+
+
 def _filter_rows_to_selected_tables(rows: List[Dict[str, Any]], tables: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     allowed = {
         (
@@ -620,6 +658,79 @@ async def build_metadata_overview_response(
             "final_result_source_count": len(rows),
             "requestId": request_id,
             "response_came_from_retry": any(item.get("came_from_retry") for item in catalog_diagnostics),
+        },
+        "rendering": shaped["rendering"],
+    }
+
+
+async def build_metadata_count_response(
+    question: str,
+    schema: Dict[str, Any],
+    executor: Any | None = None,
+    request_id: str | None = None,
+    session_metadata: Dict[str, Any] | None = None,
+) -> Dict[str, Any]:
+    tables = _normalize_tables(schema)
+    sql_by_catalog = _metadata_table_count_sql_by_catalog(tables)
+    catalog_diagnostics: List[Dict[str, Any]] = []
+    per_catalog_sql: List[str] = []
+    total_count = 0
+
+    for catalog, sql in sql_by_catalog.items():
+        per_catalog_sql.append(sql)
+        try:
+            catalog_rows = await executor.execute(sql) if executor else []
+            catalog_count = int(catalog_rows[0].get("table_count", 0)) if catalog_rows else 0
+            total_count += catalog_count
+            catalog_diagnostics.append({
+                "catalog": catalog,
+                "success": True,
+                "row_count": catalog_count,
+                "came_from_retry": bool(getattr(executor, "last_execute_retried", False)),
+            })
+        except Exception as exc:
+            logger.warning("Metadata count catalog query failed | catalog=%s | error=%s", catalog, exc)
+            catalog_diagnostics.append({"catalog": catalog, "success": False, "error": str(exc)})
+
+    if not sql_by_catalog:
+        total_count = len(tables)
+        catalog_diagnostics = [{"success": True, "source": "cached_schema", "row_count": total_count}]
+
+    sql = ";\n".join(per_catalog_sql) if per_catalog_sql else "-- Metadata count from selected schema cache"
+    shaped = shape_result([{"table_count": total_count}], question=question, sql=sql, intent={"intent": "schema_exploration"})
+    summary = await generate_summary(question=question, sql=sql, result=shaped, schema=schema)
+    failures = [item for item in catalog_diagnostics if not item.get("success")]
+    if failures:
+        summary += f" Some catalogs could not be queried ({len(failures)} failure(s)); the count includes successful sources only."
+
+    active_catalogs = sorted({str(table.get("catalog")) for table in tables if table.get("catalog")})
+    return {
+        "intent": {"intent": "schema_exploration", "reason": "Deterministic metadata table count request."},
+        "result_intent": shaped["result_intent"],
+        "selected_tables": [],
+        "sql": sql,
+        "validation": {"valid": True, "is_valid": True, "errors": []},
+        "execution": {
+            "rows": shaped["rows"],
+            "preview": shaped["preview_rows"],
+            "columns": shaped["columns"],
+            "chart_suggestion": shaped["chart_suggestion"],
+            "visualization": shaped["visualization"],
+            "rendering": shaped["rendering"],
+        },
+        "summary": summary,
+        "metadata": {
+            "schema_tables": len(tables),
+            "mock_mode": False,
+            "llm_token_received": bool((session_metadata or {}).get("llm_token_received")),
+            "result_intent": shaped["result_intent"],
+            "metadata_context": shaped["rendering"].get("metadata_context", {}),
+            "routing_reason": "standalone_metadata_count",
+            "selected_metadata_strategy": "per_catalog_information_schema_table_count",
+            "active_catalogs_discovered": active_catalogs,
+            "metadata_query_filtered": True,
+            "per_catalog_query_success_failure": catalog_diagnostics,
+            "requestId": request_id,
         },
         "rendering": shaped["rendering"],
     }

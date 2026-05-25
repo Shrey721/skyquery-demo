@@ -12,7 +12,7 @@ def test_connection(conn_req: TrinoConnectionRequest):
     Performs Trino endpoint validation:
       1. Verify Trino is reachable (SELECT 1)
       2. Verify catalogs are discoverable (SHOW CATALOGS)
-      3. Validate optional default catalog/schema context
+      3. Validate optional active catalog/schema metadata scope
 
     Returns detailed step-by-step results without saving the connection.
     """

@@ -78,7 +78,7 @@ def validate_connection(conn_req: TrinoConnectionRequest) -> dict:
     Steps:
         1. Verify Trino is reachable (SELECT 1)
         2. Verify catalogs are discoverable (SHOW CATALOGS)
-        3. If provided, verify the default catalog/schema exist
+        3. If provided, verify the active catalog/schema metadata scope exists
 
     Returns a dict with:
         - success: bool
@@ -133,7 +133,7 @@ def validate_connection(conn_req: TrinoConnectionRequest) -> dict:
             "error": f"Cannot discover catalogs from Trino. Details: {error_str}"
         }
 
-    # Step 3: Validate optional default catalog/schema as context only.
+    # Step 3: Validate optional active catalog/schema metadata scope.
     if conn_req.default_catalog:
         if conn_req.default_catalog not in catalogs:
             steps.append({

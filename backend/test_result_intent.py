@@ -3,16 +3,19 @@ import asyncio
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from app.services.query_result_intent import classify_result_intent
 from app.services.metadata_rendering import build_rendering_config
 from app.services.metadata_followup import (
+    build_metadata_count_response,
     build_metadata_overview_response,
     build_metadata_followup_response,
     build_table_columns_sql,
     is_metadata_table_detail_request,
+    is_standalone_metadata_count_request,
     is_standalone_metadata_overview_request,
     resolve_metadata_table_candidates,
     should_handle_metadata_followup,
@@ -20,6 +23,7 @@ from app.services.metadata_followup import (
 from app.services.result_shaper import shape_result
 from app.services.summary_generator import generate_summary
 from app.validators.sql_validator import validate_sql
+from app.pipeline.nl_sql_pipeline import NLtoSQLPipeline
 
 
 class ResultIntentTests(unittest.TestCase):
@@ -216,6 +220,67 @@ class ResultIntentTests(unittest.TestCase):
         self.assertTrue(is_standalone_metadata_overview_request("show tables and schemas"))
         self.assertTrue(is_standalone_metadata_overview_request("list available tables"))
         self.assertFalse(is_standalone_metadata_overview_request("show distinct airline"))
+
+    def test_standalone_metadata_table_count_detection_is_not_business_count(self):
+        self.assertTrue(is_standalone_metadata_count_request("how many tables"))
+        self.assertTrue(is_standalone_metadata_count_request("count available tables"))
+        self.assertFalse(is_standalone_metadata_count_request("how many delayed flights"))
+
+    def test_metadata_count_aggregates_catalog_qualified_queries(self):
+        class FakeExecutor:
+            last_execute_retried = False
+
+            async def execute(self, sql):
+                return [{"table_count": 2 if '"cat_b"' in sql else 1}]
+
+        schema = {
+            "tables": [
+                {"catalog": "cat_b", "schema_name": "sch", "table_name": "beta"},
+                {"catalog": "cat_b", "schema_name": "other", "table_name": "gamma"},
+                {"catalog": "cat_a", "schema_name": "sch", "table_name": "alpha"},
+            ]
+        }
+
+        response = asyncio.run(
+            build_metadata_count_response("how many tables", schema, executor=FakeExecutor())
+        )
+
+        self.assertEqual(response["execution"]["rows"], [{"table_count": 3}])
+        self.assertEqual(response["result_intent"]["category"], "metadata")
+        self.assertEqual(response["execution"]["visualization"], "stat")
+        self.assertIn('FROM "cat_a".information_schema.tables', response["sql"])
+        self.assertIn('FROM "cat_b".information_schema.tables', response["sql"])
+        self.assertIn("table_schema = 'sch'", response["sql"])
+        self.assertIn("table_schema = 'other'", response["sql"])
+        self.assertIn(" OR ", response["sql"])
+        self.assertNotIn("FROM information_schema.tables", response["sql"])
+
+    def test_pipeline_routes_table_count_before_llm_sql_generation(self):
+        class FakeExecutor:
+            last_execute_retried = False
+
+            async def execute(self, sql):
+                return [{"table_count": 1}]
+
+        schema = {
+            "tables": [
+                {"catalog": "cat_a", "schema_name": "sch", "table_name": "alpha"},
+            ]
+        }
+        pipeline = NLtoSQLPipeline.__new__(NLtoSQLPipeline)
+        pipeline.recent_sqls = []
+        pipeline.executor = FakeExecutor()
+        pipeline.mock_mode = False
+
+        with patch("app.pipeline.nl_sql_pipeline.load_schema", return_value=schema), patch(
+            "app.pipeline.nl_sql_pipeline.generate_sql",
+            new=AsyncMock(side_effect=AssertionError("LLM SQL path must not run for metadata counts")),
+        ):
+            response = asyncio.run(pipeline.process("how many tables", copilot_token="token"))
+
+        self.assertEqual(response["metadata"]["routing_reason"], "standalone_metadata_count")
+        self.assertEqual(response["execution"]["rows"], [{"table_count": 1}])
+        self.assertIn('FROM "cat_a".information_schema.tables', response["sql"])
 
     def test_metadata_overview_aggregates_catalogs_deterministically(self):
         class FakeExecutor:

@@ -178,6 +178,7 @@ Some integration-style scripts require running Redis, valid OAuth/session state,
 | `Live Copilot session expired or unavailable` | Start Redis, sign in through GitHub again, and verify the frontend is reaching the same backend that handled the OAuth callback. |
 | Redis connection refused | Start Compose; for a manually run backend use `REDIS_HOST=localhost`. Only a backend running inside the Compose network should use `REDIS_HOST=redis`. |
 | Trino `JDBC_ERROR` or a transient first-query connection failure | Confirm the selected source in backend logs, verify coordinator/connector availability and credentials, then retry; transient connector failures are retried according to `TRINO_QUERY_MAX_RETRIES`. |
+| Live Airspace reports the provider is rate-limited | OpenSky can return HTTP `429` when request limits are reached. Wait for the displayed retry cooldown before refreshing; verify `OPENSKY_API_URL` and `OPENSKY_TIMEOUT_SECONDS` if the error persists. |
 | Browser CORS errors or API requests go to the wrong host | Keep `FRONTEND_URL`, `CORS_ORIGINS`, `VITE_API_BASE_URL`, backend port, and OAuth callback URL aligned. Restart frontend/backend after changing environment values. |
 | Frontend API environment value appears not to load | Put `VITE_API_BASE_URL` in root `.env`; do not rely on `frontend/.env.local` overriding it in the current configuration. Restart `next dev` after updating `.env`. |
 

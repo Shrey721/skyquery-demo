@@ -45,13 +45,13 @@ class TrinoConnectionRequest(BaseModel):
         None,
         alias="catalog",
         validation_alias=AliasChoices("default_catalog", "catalog"),
-        description="Optional default catalog for query context. Does not limit metadata discovery.",
+        description="Optional active catalog for query context and default metadata discovery scope.",
     )
     default_schema: Optional[str] = Field(
         None,
         alias="schema",
         validation_alias=AliasChoices("default_schema", "schema", "schema_name"),
-        description="Optional default schema for query context. Does not limit metadata discovery.",
+        description="Optional active schema for query context and default metadata discovery scope.",
     )
     username: str = Field(..., description="Trino username")
     password: Optional[str] = Field(None, description="Trino password or token")

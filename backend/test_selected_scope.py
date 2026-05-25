@@ -36,6 +36,100 @@ class SelectedScopeTests(unittest.TestCase):
         self.assertEqual(result[0].tables, ["complaints"])
         self.assertIn("complaint_db", saved["value"])
 
+    def test_scoped_connection_discovers_only_active_catalog_and_schema(self):
+        executed = []
+
+        class FakeCursor:
+            def execute(self, sql):
+                executed.append(sql)
+
+            def fetchall(self):
+                return [("alpha",), ("beta",)]
+
+        class FakeConnection:
+            def cursor(self):
+                return FakeCursor()
+
+        with patch.object(
+            metadata_service,
+            "_active_connection_request",
+            lambda db: TrinoConnectionRequest(
+                host="localhost",
+                port=8080,
+                username="trino",
+                catalog="cat_a",
+                schema="sch_x",
+            ),
+        ), patch.object(
+            metadata_service.trino_service,
+            "get_trino_connection",
+            lambda req: FakeConnection(),
+        ):
+            result = metadata_service.discover_sources(db=None)
+
+        self.assertEqual([source.catalog for source in result.sources], ["cat_a"])
+        self.assertEqual([schema.schema for schema in result.sources[0].schemas], ["sch_x"])
+        self.assertEqual(result.sources[0].schemas[0].tables, ["alpha", "beta"])
+        self.assertEqual(executed, ['SHOW TABLES FROM "cat_a"."sch_x"'])
+
+    def test_unscoped_connection_can_browse_sources_for_initial_selection(self):
+        executed = []
+
+        class FakeCursor:
+            def execute(self, sql):
+                executed.append(sql)
+
+            def fetchall(self):
+                if executed[-1] == "SHOW CATALOGS":
+                    return [("cat_a",), ("cat_b",)]
+                if executed[-1] == 'SHOW SCHEMAS FROM "cat_a"':
+                    return [("sch_x",)]
+                if executed[-1] == 'SHOW SCHEMAS FROM "cat_b"':
+                    return [("sch_y",)]
+                return [("table_one",)]
+
+        class FakeConnection:
+            def cursor(self):
+                return FakeCursor()
+
+        with patch.object(
+            metadata_service,
+            "_active_connection_request",
+            lambda db: TrinoConnectionRequest(host="localhost", port=8080, username="trino"),
+        ), patch.object(
+            metadata_service.trino_service,
+            "get_trino_connection",
+            lambda req: FakeConnection(),
+        ):
+            result = metadata_service.discover_sources(db=None)
+
+        self.assertEqual([source.catalog for source in result.sources], ["cat_a", "cat_b"])
+        self.assertIn("SHOW CATALOGS", executed)
+        self.assertIn('SHOW SCHEMAS FROM "cat_a"', executed)
+        self.assertIn('SHOW SCHEMAS FROM "cat_b"', executed)
+
+    def test_saved_source_selection_cannot_escape_active_connection_scope(self):
+        with patch.object(
+            metadata_service,
+            "_active_connection_request",
+            lambda db: TrinoConnectionRequest(
+                host="localhost",
+                port=8080,
+                username="trino",
+                catalog="cat_a",
+                schema="sch_x",
+            ),
+        ):
+            with self.assertRaisesRegex(ValueError, "outside the active connection scope"):
+                metadata_service.save_selected_sources(
+                    SelectedSourcesRequest(
+                        selected_sources=[
+                            SelectedSource(catalog="cat_b", schema="sch_y", tables=["hidden_table"])
+                        ]
+                    ),
+                    db=object(),
+                )
+
     def test_build_selected_schema_context_describes_only_selected_tables(self):
         executed = []
 
@@ -66,6 +160,26 @@ class SelectedScopeTests(unittest.TestCase):
         self.assertEqual(context.tables[0].qualified_name, "mysql.complaint_db.complaints")
         self.assertEqual(executed, ['DESCRIBE "mysql"."complaint_db"."complaints"'])
 
+    def test_context_build_rejects_stale_source_outside_active_scope(self):
+        with patch.object(
+            metadata_service,
+            "_active_connection_request",
+            lambda db: TrinoConnectionRequest(
+                host="localhost",
+                port=8080,
+                username="trino",
+                catalog="cat_a",
+                schema="sch_x",
+            ),
+        ):
+            with self.assertRaisesRegex(ValueError, "outside the active connection scope"):
+                metadata_service.buildSelectedSchemaContext(
+                    db=None,
+                    selected_sources=[
+                        SelectedSource(catalog="cat_b", schema="sch_y", tables=["hidden_table"])
+                    ],
+                )
+
     def test_sql_validator_blocks_unselected_tables(self):
         schema = {
             "tables": [
@@ -81,7 +195,7 @@ class SelectedScopeTests(unittest.TestCase):
         result = asyncio.run(validate_sql("SELECT * FROM mysql.complaint_db.conversation_logs", schema))
 
         self.assertFalse(result["valid"])
-        self.assertIn("selected data sources", result["errors"][0])
+        self.assertIn("active selected data scope", result["errors"][0])
 
     def test_sql_validator_requires_fully_qualified_table_names(self):
         schema = {

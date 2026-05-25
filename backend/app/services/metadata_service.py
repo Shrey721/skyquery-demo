@@ -26,6 +26,31 @@ def _active_connection_request(db: Session) -> TrinoConnectionRequest:
     return conn_req
 
 
+def _active_metadata_scope(conn_req: TrinoConnectionRequest) -> tuple[str | None, str | None]:
+    catalog = (conn_req.default_catalog or "").strip() or None
+    schema = (conn_req.default_schema or "").strip() or None
+    if schema and not catalog:
+        raise ValueError("An active schema requires an active catalog for metadata discovery.")
+    return catalog, schema
+
+
+def _validate_selected_sources_scope(
+    selected_sources: list[SelectedSource],
+    conn_req: TrinoConnectionRequest,
+) -> None:
+    active_catalog, active_schema = _active_metadata_scope(conn_req)
+    for source in selected_sources:
+        if active_catalog and source.catalog != active_catalog:
+            raise ValueError(
+                f"Selected catalog '{source.catalog}' is outside the active connection scope '{active_catalog}'."
+            )
+        if active_schema and source.schema != active_schema:
+            raise ValueError(
+                f"Selected schema '{source.schema}' is outside the active connection scope "
+                f"'{active_catalog}.{active_schema}'."
+            )
+
+
 def _first_column(rows) -> list[str]:
     return [row[0] for row in rows if row and row[0]]
 
@@ -109,32 +134,40 @@ def discover_tables(cur, catalog: str, schema: str) -> list[str]:
 
 def discover_sources(db: Session) -> SourceDiscoveryResponse:
     """
-    Discover catalog -> schema -> table names for the source picker without
-    describing columns or caching LLM schema metadata.
+    Discover tables for the active connection scope without describing columns
+    or caching LLM schema metadata. A connection with no configured catalog
+    remains browsable so a user can make an initial source selection.
     """
     conn_req = _active_connection_request(db)
+    active_catalog, active_schema = _active_metadata_scope(conn_req)
     sources: list[DiscoveredCatalog] = []
     discovery_errors: list[str] = []
 
     conn = trino_service.get_trino_connection(conn_req)
     cur = conn.cursor()
 
-    try:
-        catalogs = discoverCatalogs(cur)
-    except Exception as exc:
-        raise Exception(f"Failed to discover catalogs from Trino: {exc}") from exc
+    if active_catalog:
+        catalogs = [active_catalog]
+    else:
+        try:
+            catalogs = discoverCatalogs(cur)
+        except Exception as exc:
+            raise Exception(f"Failed to discover catalogs from Trino: {exc}") from exc
 
     for catalog in catalogs:
         catalog_node = DiscoveredCatalog(catalog=catalog, schemas=[])
         sources.append(catalog_node)
 
-        try:
-            schemas = discoverSchemas(cur, catalog)
-        except Exception as exc:
-            message = f"Failed to discover schemas for catalog {catalog}: {exc}"
-            logger.warning(message)
-            discovery_errors.append(message)
-            continue
+        if active_catalog == catalog and active_schema:
+            schemas = [active_schema]
+        else:
+            try:
+                schemas = discoverSchemas(cur, catalog)
+            except Exception as exc:
+                message = f"Failed to discover schemas for catalog {catalog}: {exc}"
+                logger.warning(message)
+                discovery_errors.append(message)
+                continue
 
         for schema in schemas:
             try:
@@ -148,15 +181,19 @@ def discover_sources(db: Session) -> SourceDiscoveryResponse:
             catalog_node.schemas.append(DiscoveredSchema(schema=schema, tables=tables))
 
     logger.info(
-        "Discovered Trino source tree: %s catalog(s), %s non-fatal error(s)",
+        "Discovered Trino source tree: %s catalog(s), active_scope=%s.%s, %s non-fatal error(s)",
         len(sources),
+        active_catalog or "*",
+        active_schema or "*",
         len(discovery_errors),
     )
     return SourceDiscoveryResponse(sources=sources, discovery_errors=discovery_errors)
 
 
-def save_selected_sources(request: SelectedSourcesRequest) -> list[SelectedSource]:
+def save_selected_sources(request: SelectedSourcesRequest, db: Session | None = None) -> list[SelectedSource]:
     selected_sources = _normalize_selected_sources(request.selected_sources)
+    if db is not None:
+        _validate_selected_sources_scope(selected_sources, _active_connection_request(db))
     redis_cache.set_selected_sources(
         SelectedSourcesRequest(selected_sources=selected_sources).model_dump_json(by_alias=True)
     )
@@ -175,6 +212,7 @@ def get_selected_sources() -> list[SelectedSource] | None:
 def buildSelectedSchemaContext(db: Session, selected_sources: list[SelectedSource] | None = None) -> GlobalMetadata:
     selected_sources = _normalize_selected_sources(selected_sources or get_selected_sources() or [])
     conn_req = _active_connection_request(db)
+    _validate_selected_sources_scope(selected_sources, conn_req)
     metadata = GlobalMetadata()
 
     conn = trino_service.get_trino_connection(conn_req)
@@ -220,33 +258,40 @@ def build_selected_schema_context(db: Session, selected_sources: list[SelectedSo
 
 def discover_and_cache_metadata(db: Session) -> GlobalMetadata:
     """
-    Discover all accessible catalogs, schemas, tables, and columns from one Trino
-    endpoint. The default catalog/schema are used only as connection context.
+    Discover metadata within the active connection catalog/schema scope. If no
+    active scope has been configured, discovery remains broad for onboarding.
     """
     conn_req = _active_connection_request(db)
+    active_catalog, active_schema = _active_metadata_scope(conn_req)
     metadata = GlobalMetadata()
 
     conn = trino_service.get_trino_connection(conn_req)
     cur = conn.cursor()
 
-    try:
-        cur.execute("SHOW CATALOGS")
-        catalogs = metadata_filter.filter_catalogs(_first_column(cur.fetchall()))
-    except Exception as exc:
-        raise Exception(f"Failed to discover catalogs from Trino: {exc}") from exc
+    if active_catalog:
+        catalogs = [active_catalog]
+    else:
+        try:
+            cur.execute("SHOW CATALOGS")
+            catalogs = metadata_filter.filter_catalogs(_first_column(cur.fetchall()))
+        except Exception as exc:
+            raise Exception(f"Failed to discover catalogs from Trino: {exc}") from exc
 
     for catalog in catalogs:
         catalog_meta = CatalogMetadata()
         metadata.catalogs[catalog] = catalog_meta
 
-        try:
-            cur.execute(f"SHOW SCHEMAS FROM {trino_service.quote_identifier(catalog)}")
-            schemas = metadata_filter.filter_schemas(catalog, _first_column(cur.fetchall()))
-        except Exception as exc:
-            message = f"Failed to discover schemas for catalog {catalog}: {exc}"
-            logger.warning(message)
-            metadata.discovery_errors.append(message)
-            continue
+        if active_catalog == catalog and active_schema:
+            schemas = [active_schema]
+        else:
+            try:
+                cur.execute(f"SHOW SCHEMAS FROM {trino_service.quote_identifier(catalog)}")
+                schemas = metadata_filter.filter_schemas(catalog, _first_column(cur.fetchall()))
+            except Exception as exc:
+                message = f"Failed to discover schemas for catalog {catalog}: {exc}"
+                logger.warning(message)
+                metadata.discovery_errors.append(message)
+                continue
 
         for schema in schemas:
             schema_meta = SchemaMetadata()

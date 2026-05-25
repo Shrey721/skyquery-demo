@@ -19,11 +19,13 @@ from app.services.followup_query_resolver import (
     sanity_check_followup_resolution,
 )
 from app.services.metadata_followup import (
+    build_metadata_count_response,
     build_metadata_overview_response,
     build_metadata_followup_response,
     build_metadata_clarification_response,
     build_table_columns_sql,
     is_metadata_table_detail_request,
+    is_standalone_metadata_count_request,
     is_standalone_metadata_overview_request,
     resolve_metadata_table_candidates,
     should_handle_metadata_followup,
@@ -61,7 +63,17 @@ class NLtoSQLPipeline:
 
         is_metadata_followup = should_handle_metadata_followup(question, query_context)
         is_metadata_detail_request = is_metadata_table_detail_request(question, query_context)
+        is_metadata_count_request = is_standalone_metadata_count_request(question)
         is_metadata_overview_request = is_standalone_metadata_overview_request(question)
+
+        if is_metadata_count_request and not is_metadata_detail_request:
+            return await build_metadata_count_response(
+                question=question,
+                schema=schema,
+                executor=self.executor,
+                request_id=request_id,
+                session_metadata={"llm_token_received": bool(copilot_token)},
+            )
 
         if is_metadata_overview_request and not is_metadata_detail_request:
             return await build_metadata_overview_response(
