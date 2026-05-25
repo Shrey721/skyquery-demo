@@ -8,7 +8,6 @@ from trino.auth import BasicAuthentication
 
 from app.core.config import settings
 from app.db.database import SessionLocal
-from app.models.connection import TrinoConnectionRequest
 from app.services import connection_store, trino_service
 from app.services.execution_errors import is_connector_connection_failure
 
@@ -24,9 +23,11 @@ class StarburstExecutor:
         self.connection_info: Dict[str, Any] | None = None
         self.mock_mode = False
         logger.info(
-            "Trino executor startup config | cwd=%s | database_url=%s | TRINO_HOST=%s | TRINO_PORT=%s | TRINO_USER=%s | TRINO_CATALOG=%s | TRINO_SCHEMA=%s | mock_mode=%s",
+            "Trino executor startup config | cwd=%s | database_url=%s | connection_policy=%s | allow_saved_connections=%s | TRINO_HOST=%s | TRINO_PORT=%s | TRINO_USER=%s | TRINO_CATALOG=%s | TRINO_SCHEMA=%s | mock_mode=%s",
             os.getcwd(),
             settings.DATABASE_URL,
+            settings.TRINO_CONNECTION_SOURCE,
+            settings.ALLOW_SAVED_CONNECTIONS,
             settings.TRINO_HOST,
             settings.TRINO_PORT,
             settings.TRINO_USER,
@@ -41,20 +42,11 @@ class StarburstExecutor:
     def _connect(self):
         db = SessionLocal()
         try:
-            active_conn = connection_store.get_active_connection(db)
-            if active_conn:
-                conn_req = TrinoConnectionRequest(
-                    host=active_conn.host,
-                    port=active_conn.port,
-                    default_catalog=active_conn.default_catalog,
-                    default_schema=active_conn.default_schema,
-                    username=active_conn.username,
-                    password=connection_store.decrypt_password(active_conn.encrypted_password),
-                    ssl=active_conn.ssl_enabled,
-                )
+            conn_req, source = connection_store.resolve_trino_connection_request(db)
+            if source == "saved":
                 self.connection_info = trino_service.connection_debug_info(conn_req, source="active_saved_connection")
                 logger.info(
-                    "Using active saved Trino connection | final_endpoint=%s://%s:%s | user=%s | active_catalog=%s | active_schema=%s",
+                    "Using Trino connection source=saved | final_endpoint=%s://%s:%s | user=%s | active_catalog=%s | active_schema=%s",
                     self.connection_info["http_scheme"],
                     self.connection_info["host"],
                     self.connection_info["port"],
@@ -66,26 +58,24 @@ class StarburstExecutor:
         finally:
             db.close()
 
-        trino_host = settings.TRINO_HOST
-        trino_port = settings.TRINO_PORT
         connect_kwargs = {
-            "host": trino_host,
-            "port": trino_port,
-            "user": settings.TRINO_USER,
+            "host": conn_req.host,
+            "port": conn_req.port,
+            "user": conn_req.username,
             "http_scheme": settings.TRINO_HTTP_SCHEME,
             "verify": settings.TRINO_VERIFY_SSL,
         }
-        if settings.TRINO_PASSWORD:
-            connect_kwargs["auth"] = BasicAuthentication(settings.TRINO_USER, settings.TRINO_PASSWORD)
-        if settings.TRINO_DEFAULT_CATALOG:
-            connect_kwargs["catalog"] = settings.TRINO_DEFAULT_CATALOG
-        if settings.TRINO_DEFAULT_SCHEMA:
-            connect_kwargs["schema"] = settings.TRINO_DEFAULT_SCHEMA
+        if conn_req.password:
+            connect_kwargs["auth"] = BasicAuthentication(conn_req.username, conn_req.password)
+        if conn_req.default_catalog:
+            connect_kwargs["catalog"] = conn_req.default_catalog
+        if conn_req.default_schema:
+            connect_kwargs["schema"] = conn_req.default_schema
 
         self.connection_info = {
-            "source": "environment_fallback",
-            "host": trino_host,
-            "port": trino_port,
+            "source": "environment_configuration",
+            "host": conn_req.host,
+            "port": conn_req.port,
             "user": connect_kwargs["user"],
             "catalog": connect_kwargs.get("catalog", ""),
             "schema": connect_kwargs.get("schema", ""),
@@ -93,7 +83,7 @@ class StarburstExecutor:
             "ssl_enabled": connect_kwargs["http_scheme"] == "https",
         }
         logger.info(
-            "Using environment Trino connection | final_endpoint=%s://%s:%s | user=%s | active_catalog=%s | active_schema=%s",
+            "Using Trino connection source=env | final_endpoint=%s://%s:%s | user=%s | active_catalog=%s | active_schema=%s",
             self.connection_info["http_scheme"],
             self.connection_info["host"],
             self.connection_info["port"],

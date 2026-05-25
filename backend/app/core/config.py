@@ -70,6 +70,8 @@ class Settings(BaseSettings):
     TRINO_VERIFY_SSL: bool = True
     TRINO_QUERY_MAX_RETRIES: int = Field(2, ge=0)
     TRINO_QUERY_RETRY_DELAY_SECONDS: float = Field(1.0, ge=0)
+    ALLOW_SAVED_CONNECTIONS: bool = True
+    TRINO_CONNECTION_SOURCE: str = "auto"
 
     OPENSKY_URL: str = "https://opensky-network.org/api/states/all"
     ENABLE_MOCK_DATA: bool = False
@@ -95,6 +97,12 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_and_derive_configuration(self) -> "Settings":
+        self.TRINO_CONNECTION_SOURCE = self.TRINO_CONNECTION_SOURCE.strip().lower()
+        if self.TRINO_CONNECTION_SOURCE not in {"env", "saved", "auto"}:
+            raise ValueError("TRINO_CONNECTION_SOURCE must be one of: env, saved, auto.")
+        if self.TRINO_CONNECTION_SOURCE == "saved" and not self.ALLOW_SAVED_CONNECTIONS:
+            raise ValueError("TRINO_CONNECTION_SOURCE=saved requires ALLOW_SAVED_CONNECTIONS=true.")
+
         if self.APP_ENV.lower() == "production":
             required_fields = {
                 "FRONTEND_URL": self.FRONTEND_URL,
@@ -102,16 +110,21 @@ class Settings(BaseSettings):
                 "BACKEND_PUBLIC_URL": self.BACKEND_PUBLIC_URL,
                 "SECRET_KEY": self.SECRET_KEY,
                 "DATABASE_URL": self.DATABASE_URL,
-                "TRINO_HOST": self.TRINO_HOST,
-                "TRINO_USER": self.TRINO_USER,
-                "TRINO_DEFAULT_CATALOG": self.TRINO_DEFAULT_CATALOG,
-                "TRINO_DEFAULT_SCHEMA": self.TRINO_DEFAULT_SCHEMA,
                 "GITHUB_CLIENT_ID": self.GITHUB_CLIENT_ID,
                 "GITHUB_CLIENT_SECRET": self.GITHUB_CLIENT_SECRET,
                 "GITHUB_CALLBACK_URL": self.GITHUB_CALLBACK_URL,
                 "LLM_PROVIDER": self.LLM_PROVIDER,
                 "LLM_MODEL": self.LLM_MODEL,
             }
+            if self.TRINO_CONNECTION_SOURCE != "saved":
+                required_fields.update(
+                    {
+                        "TRINO_HOST": self.TRINO_HOST,
+                        "TRINO_USER": self.TRINO_USER,
+                        "TRINO_DEFAULT_CATALOG": self.TRINO_DEFAULT_CATALOG,
+                        "TRINO_DEFAULT_SCHEMA": self.TRINO_DEFAULT_SCHEMA,
+                    }
+                )
             display_names = {
                 "TRINO_DEFAULT_CATALOG": "TRINO_CATALOG",
                 "TRINO_DEFAULT_SCHEMA": "TRINO_SCHEMA",

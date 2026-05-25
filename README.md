@@ -41,6 +41,27 @@ LLM_MODEL=
 
 Set the provider API key required by `LLM_PROVIDER`, where applicable. `ENABLE_MOCK_DATA` and `ENABLE_DEV_FALLBACKS` must remain `false` in production.
 
+## Trino Connection Source
+
+The backend supports connections saved through the UI as well as a coordinator configured with `TRINO_*` environment variables:
+
+```env
+ALLOW_SAVED_CONNECTIONS=true
+TRINO_CONNECTION_SOURCE=auto
+```
+
+`TRINO_CONNECTION_SOURCE` selects the connection used for both metadata discovery and query execution:
+
+| Value | Precedence |
+| --- | --- |
+| `auto` | If `ALLOW_SAVED_CONNECTIONS=true` and an active UI-saved connection exists, use it. Otherwise use `TRINO_*` from `.env`. |
+| `env` | Always use `TRINO_*` from `.env`; saved connections remain stored but do not override the environment endpoint. |
+| `saved` | Require and use an active UI-saved connection. If none exists, requests fail with a configuration message. |
+
+`ALLOW_SAVED_CONNECTIONS=false` disables selection of saved connections in `auto` mode. It cannot be combined with `TRINO_CONNECTION_SOURCE=saved`. The defaults (`true` and `auto`) preserve the existing UI connection workflow.
+
+The backend logs `active_source=saved` or `active_source=env` whenever it selects a connection, along with the configured policy and endpoint.
+
 ## Local Run
 
 Start the currently defined infrastructure service using the shared environment file:

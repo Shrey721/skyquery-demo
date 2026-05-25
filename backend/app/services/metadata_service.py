@@ -21,19 +21,9 @@ logger = logging.getLogger(__name__)
 
 
 def _active_connection_request(db: Session) -> TrinoConnectionRequest:
-    active_conn = connection_store.get_active_connection(db)
-    if not active_conn:
-        raise ValueError("No active Trino connection found.")
-
-    return TrinoConnectionRequest(
-        host=active_conn.host,
-        port=active_conn.port,
-        default_catalog=active_conn.default_catalog,
-        default_schema=active_conn.default_schema,
-        username=active_conn.username,
-        password=connection_store.decrypt_password(active_conn.encrypted_password),
-        ssl=active_conn.ssl_enabled,
-    )
+    conn_req, source = connection_store.resolve_trino_connection_request(db)
+    logger.info("Metadata discovery is using Trino connection source=%s", source)
+    return conn_req
 
 
 def _first_column(rows) -> list[str]:
