@@ -53,9 +53,10 @@ function densityCells(map: any, aircraft: LiveAircraft[], cellSize: number): Den
 
 function planeIcon(L: any, flight: LiveAircraft, selected: boolean, view: TrafficView) {
   const heading = flight.heading != null && Number.isFinite(flight.heading) ? flight.heading : 0
+  const impactedClass = flight.weather_impacted ? " is-weather-impacted" : ""
   return L.divIcon({
     className: "discover-marker-shell",
-    html: `<span class="discover-plane is-${view}${selected ? " is-selected" : ""}" style="transform:rotate(${heading}deg)" aria-hidden="true">&#9992;</span>`,
+    html: `<span class="discover-plane is-${view}${selected ? " is-selected" : ""}${impactedClass}" style="transform:rotate(${heading}deg)" aria-hidden="true">&#9992;</span>`,
     iconSize: [30, 30],
     iconAnchor: [15, 15],
   })

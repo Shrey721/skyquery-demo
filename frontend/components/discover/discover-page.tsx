@@ -12,7 +12,8 @@ import { fetchPublicFlights, type LiveAircraft, type MapBounds } from "@/lib/pub
 import { fetchWeather, regionFromBounds, regionFromSearch, type WeatherIntelligence, type WeatherRegion } from "@/lib/weather-api"
 import { isAllowedWeatherFetchReason } from "@/lib/weather-refresh-policy.mjs"
 import { boundsAroundLocation, resolveLocationQuery } from "@/lib/location-search.mjs"
-import { parseDiscoverQuery, requestedWeatherMetricSummary, shouldMarkFlightsImpacted, weatherImpactSummary } from "@/lib/discover-query-intent.mjs"
+import { buildWeatherImpactAssessment, parseDiscoverQuery, requestedWeatherMetricSummary, shouldMarkFlightsImpacted, weatherImpactSummary } from "@/lib/discover-query-intent.mjs"
+import { fetchNearbyAirports, type NearbyAirport } from "@/lib/nearby-airports-api"
 
 const AviationMap = dynamic(() => import("./aviation-map").then((module) => module.AviationMap), { ssr: false })
 
@@ -29,8 +30,12 @@ export function DiscoverPage() {
   const [weatherLoading, setWeatherLoading] = useState(false)
   const [weatherError, setWeatherError] = useState<string | null>(null)
   const [weatherSummary, setWeatherSummary] = useState<string | null>(null)
+  const [weatherImpactAssessment, setWeatherImpactAssessment] = useState<any>(null)
   const [focusLocation, setFocusLocation] = useState<{ latitude: number; longitude: number; zoom?: number; nonce: number } | null>(null)
   const [submittedSearchRegion, setSubmittedSearchRegion] = useState<WeatherRegion | null>(null)
+  const [nearbyAirports, setNearbyAirports] = useState<NearbyAirport[]>([])
+  const [nearbyAirportsContext, setNearbyAirportsContext] = useState<"selected_aircraft" | "search_area" | null>(null)
+  const [nearbyAirportsError, setNearbyAirportsError] = useState<string | null>(null)
   const [search, setSearch] = useState("")
   const [showOnGround, setShowOnGround] = useState(false)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -39,6 +44,26 @@ export function DiscoverPage() {
   const weatherRequestIdRef = useRef(0)
   const weatherRef = useRef<WeatherIntelligence | null>(null)
   const focusNonceRef = useRef(0)
+  const airportsRequestIdRef = useRef(0)
+
+  const loadNearbyAirports = useCallback(async (
+    latitude: number,
+    longitude: number,
+    context: "selected_aircraft" | "search_area",
+  ) => {
+    const requestId = airportsRequestIdRef.current + 1
+    airportsRequestIdRef.current = requestId
+    setNearbyAirportsContext(context)
+    setNearbyAirportsError(null)
+    try {
+      const response = await fetchNearbyAirports(latitude, longitude, 5)
+      if (requestId !== airportsRequestIdRef.current) return
+      setNearbyAirports(response.airports)
+    } catch {
+      if (requestId !== airportsRequestIdRef.current) return
+      setNearbyAirportsError("Nearby airport data unavailable.")
+    }
+  }, [])
 
   const loadFlights = useCallback(async (visibleBounds: MapBounds, options: { forceRefresh?: boolean; reason?: "initial_load" | "manual_refresh" | "search_submit" } = {}) => {
     const requestId = requestIdRef.current + 1
@@ -133,17 +158,22 @@ export function DiscoverPage() {
         setBounds(searchBounds)
         setError(null)
         setWeatherSummary(null)
+        setWeatherImpactAssessment(null)
+        loadNearbyAirports(location.latitude, location.longitude, "search_area")
         const [flightResponse, weatherResponse] = await Promise.all([
           loadFlights(searchBounds, { forceRefresh: true, reason: "search_submit" }),
           fetchWeatherForLocation("search_submit", region),
         ])
-        if (flightResponse && weatherResponse && intent.impactType) {
+        if (flightResponse && weatherResponse && intent.impactMode) {
           const impacted = shouldMarkFlightsImpacted(intent, weatherResponse)
           const markedAircraft = flightResponse.aircraft.map((flight) => ({ ...flight, weather_impacted: impacted }))
           setAircraft(markedAircraft)
+          setWeatherImpactAssessment(buildWeatherImpactAssessment(intent, weatherResponse, markedAircraft.length))
           setWeatherSummary(weatherImpactSummary(intent, weatherResponse, impacted ? markedAircraft.length : 0))
-        } else if (weatherResponse && intent.impactType) {
-          setWeatherSummary(weatherImpactSummary(intent, weatherResponse, 0))
+        } else if (weatherResponse && intent.impactMode) {
+          const assessment = buildWeatherImpactAssessment(intent, weatherResponse, flightResponse?.aircraft.length ?? 0)
+          setWeatherImpactAssessment(assessment)
+          setWeatherSummary(assessment?.detected ? "Weather impact detected for this area." : assessment?.assessment ?? null)
         } else if (weatherResponse) {
           setWeatherSummary(requestedWeatherMetricSummary(intent, weatherResponse, flightResponse?.aircraft.length ?? 0))
         }
@@ -169,8 +199,14 @@ export function DiscoverPage() {
   useEffect(() => () => {
     requestIdRef.current += 1
     weatherRequestIdRef.current += 1
+    airportsRequestIdRef.current += 1
     if (debounceRef.current) clearTimeout(debounceRef.current)
   }, [])
+
+  useEffect(() => {
+    if (!selected) return
+    loadNearbyAirports(selected.latitude, selected.longitude, "selected_aircraft")
+  }, [loadNearbyAirports, selected])
 
   const searchRegion = useMemo(() => regionFromSearch(search) ?? submittedSearchRegion, [search, submittedSearchRegion])
 
@@ -233,6 +269,10 @@ export function DiscoverPage() {
           weatherLoading={weatherLoading}
           weatherError={weatherError}
           weatherSummary={weatherSummary}
+          weatherImpactAssessment={weatherImpactAssessment}
+          nearbyAirports={nearbyAirports}
+          nearbyAirportsContext={nearbyAirportsContext}
+          nearbyAirportsError={nearbyAirportsError}
           onRefreshWeather={refreshWeather}
         />
       </main>

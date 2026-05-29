@@ -5,13 +5,7 @@ import { useState } from "react"
 import { Activity, ChevronDown, CloudRain, Database, MapPin, Plane, Radio, RefreshCw, Sparkles } from "lucide-react"
 import type { LiveAircraft, MapBounds } from "@/lib/public-flights-api"
 import type { WeatherIntelligence, WeatherRegion } from "@/lib/weather-api"
-
-const REFERENCE_AIRPORTS = [
-  { code: "DEL", name: "Indira Gandhi International", latitude: 28.5562, longitude: 77.1 },
-  { code: "BOM", name: "Chhatrapati Shivaji Maharaj International", latitude: 19.0896, longitude: 72.8656 },
-  { code: "BLR", name: "Kempegowda International", latitude: 13.1986, longitude: 77.7066 },
-  { code: "HYD", name: "Rajiv Gandhi International", latitude: 17.2403, longitude: 78.4294 },
-]
+import type { NearbyAirport } from "@/lib/nearby-airports-api"
 
 function displayNumber(value: number | null, unit = "") {
   return value == null ? "Unavailable" : `${Math.round(value).toLocaleString()}${unit}`
@@ -38,14 +32,6 @@ function riskClass(risk?: string) {
   return "bg-emerald-500/10 text-emerald-300"
 }
 
-function distanceNm(flight: LiveAircraft, airport: (typeof REFERENCE_AIRPORTS)[number]) {
-  const radians = Math.PI / 180
-  const dLat = (airport.latitude - flight.latitude) * radians
-  const dLon = (airport.longitude - flight.longitude) * radians
-  const a = Math.sin(dLat / 2) ** 2 + Math.cos(flight.latitude * radians) * Math.cos(airport.latitude * radians) * Math.sin(dLon / 2) ** 2
-  return Math.round(3440 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)))
-}
-
 export function IntelligencePanel({
   aircraft,
   selected,
@@ -57,6 +43,10 @@ export function IntelligencePanel({
   weatherLoading = false,
   weatherError,
   weatherSummary,
+  weatherImpactAssessment,
+  nearbyAirports,
+  nearbyAirportsContext,
+  nearbyAirportsError,
   onRefreshWeather,
 }: {
   aircraft: LiveAircraft[]
@@ -69,6 +59,18 @@ export function IntelligencePanel({
   weatherLoading?: boolean
   weatherError?: string | null
   weatherSummary?: string | null
+  weatherImpactAssessment?: {
+    impactMode: boolean
+    impactTypeLabel: string
+    flightsInArea: number
+    impactedCount: number
+    assessment: string
+    contributors: string[]
+    honestyLabel: string
+  } | null
+  nearbyAirports?: NearbyAirport[]
+  nearbyAirportsContext?: "selected_aircraft" | "search_area" | null
+  nearbyAirportsError?: string | null
   onRefreshWeather?: () => void
 }) {
   const [detailsOpen, setDetailsOpen] = useState(false)
@@ -87,10 +89,6 @@ export function IntelligencePanel({
   const areaSqNm = longitudeWidth * latitudeHeight * latitudeScale * 60 * 60
   const densityPer10kSqNm = aircraft.length / areaSqNm * 10_000
   const congestion = densityPer10kSqNm < 2 ? "Low" : densityPer10kSqNm < 6 ? "Moderate" : "High"
-  const nearby = selected
-    ? REFERENCE_AIRPORTS.map((airport) => ({ ...airport, distance: distanceNm(selected, airport) })).sort((a, b) => a.distance - b.distance).slice(0, 3)
-    : REFERENCE_AIRPORTS.slice(0, 3).map((airport) => ({ ...airport, distance: null }))
-
   return (
     <aside className="flex w-full shrink-0 flex-col overflow-y-auto border-l border-border/40 bg-card/70 p-4 backdrop-blur-xl lg:w-[360px]">
       <section className="mb-5 space-y-3">
@@ -162,6 +160,23 @@ export function IntelligencePanel({
           </div>
         </div>
       </section>
+      {weatherImpactAssessment?.impactMode && (
+        <section className="mb-5 space-y-3">
+          <h2 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider"><CloudRain className="h-4 w-4 text-primary" /> Flight Weather Impact</h2>
+          <div className="space-y-2 rounded-xl border border-border/40 bg-secondary/20 p-3 text-xs">
+            <Detail label="Impact Type" value={weatherImpactAssessment.impactTypeLabel} />
+            <Detail label="Flights in Area" value={String(weatherImpactAssessment.flightsInArea)} />
+            <Detail label="Weather Impacted" value={String(weatherImpactAssessment.impactedCount)} />
+            <p className={`rounded-lg px-3 py-2 ${weatherImpactAssessment.impactedCount ? "bg-amber-500/10 text-amber-200" : "bg-secondary/30 text-muted-foreground"}`}>
+              {weatherImpactAssessment.assessment}
+            </p>
+            {weatherImpactAssessment.contributors.length > 0 && (
+              <p className="text-[11px] text-muted-foreground">Reason: {weatherImpactAssessment.contributors.join(", ")}</p>
+            )}
+            <p className="text-[11px] text-muted-foreground">{weatherImpactAssessment.honestyLabel}</p>
+          </div>
+        </section>
+      )}
       <section className="mb-5 space-y-3">
         <h2 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider"><Activity className="h-4 w-4 text-primary" /> Live Airspace Summary</h2>
         <div className="grid grid-cols-2 gap-2">
@@ -193,13 +208,21 @@ export function IntelligencePanel({
       </section>
       <section className="mb-5 space-y-3">
         <h2 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider"><MapPin className="h-4 w-4 text-primary" /> Nearby Airports</h2>
-        <p className="text-[11px] text-muted-foreground">Reference airport locations only. Operational data not connected.</p>
-        {nearby.map((airport) => (
-          <div key={airport.code} className="rounded-lg border border-border/30 bg-secondary/20 p-2 text-xs">
-            <span className="font-semibold text-primary">{airport.code}</span> <span className="text-muted-foreground">{airport.name}</span>
-            {airport.distance != null && <span className="float-right text-muted-foreground">{airport.distance} nm</span>}
-          </div>
-        ))}
+        <p className="text-[11px] text-muted-foreground">
+          {nearbyAirportsContext === "selected_aircraft" ? "Nearest airports to selected aircraft" : "Nearby airports for current area"}
+        </p>
+        {nearbyAirportsError ? (
+          <p className="rounded-lg border border-border/30 bg-secondary/20 p-2 text-xs text-muted-foreground">Nearby airport data unavailable.</p>
+        ) : nearbyAirports && nearbyAirports.length > 0 ? (
+          nearbyAirports.slice(0, 5).map((airport) => (
+            <div key={`${airport.ident}-${airport.distanceNm}`} className="rounded-lg border border-border/30 bg-secondary/20 p-2 text-xs">
+              <span className="font-semibold text-primary">{airport.code}</span> <span className="text-muted-foreground">{airport.name}</span>
+              <span className="float-right text-muted-foreground">{Math.round(airport.distanceNm)} nm</span>
+            </div>
+          ))
+        ) : (
+          <p className="rounded-lg border border-border/30 bg-secondary/20 p-2 text-xs text-muted-foreground">Nearby airport data unavailable.</p>
+        )}
       </section>
       <section className="space-y-3">
         <h2 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider"><Sparkles className="h-4 w-4 text-accent" /> AI Suggested Questions</h2>

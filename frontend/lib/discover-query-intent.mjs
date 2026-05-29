@@ -1,6 +1,6 @@
 const WEATHER_TERMS = /\b(weather|temperature|wind|rain|cloud|visibility|aviation weather|weather risk|risk)\b/i
 const FLIGHT_TERMS = /\b(flights?|aircraft|planes?|airspace|traffic)\b/i
-const IMPACT_TERMS = /\b(affected|storm|high wind|rain|aviation risk)\b/i
+const IMPACT_TERMS = /\b(affected|storm|severe weather|bad weather|rain|heavy rain|high wind|strong wind|poor visibility|low visibility|weather affected|affected by weather|aviation risk)\b/i
 
 export function parseDiscoverQuery(query) {
   const text = query.trim().toLowerCase()
@@ -20,19 +20,22 @@ export function parseDiscoverQuery(query) {
             : /\brisk\b/.test(text)
               ? "risk"
               : "weather"
-  const impactType = /\bstorm\b/.test(text)
+  const impactType = /\bstorm\b|\bsevere weather\b/.test(text)
     ? "storm"
-    : /\bhigh wind\b|\bwind\b/.test(text) && /\b(affected|high wind|in high wind)\b/.test(text)
+    : /\bheavy rain\b|\brain\b/.test(text)
+      ? "rain"
+      : /\bhigh wind\b|\bstrong wind\b/.test(text)
       ? "wind"
-      : /\brain\b/.test(text)
-        ? "rain"
-        : /\baviation risk\b|\brisk\b/.test(text)
-          ? "risk"
+      : /\bpoor visibility\b|\blow visibility\b|\bvisibility\b/.test(text) && asksImpact
+        ? "visibility"
+        : /\bbad weather\b|\bweather affected\b|\baffected by weather\b|\baviation risk\b|\brisk\b/.test(text)
+          ? "general_weather"
           : null
 
   return {
     fetchFlights: true,
     fetchWeather: true,
+    impactMode: Boolean(impactType),
     impactType,
     requestedMetric,
     isWeatherOnly: mentionsWeather && !mentionsFlights && !asksImpact,
@@ -70,43 +73,122 @@ export function requestedWeatherMetricSummary(intent, weather, flightCount) {
 export function isStormLike(weather) {
   const code = weather?.weatherCode
   return code === 95 || code === 96 || code === 99 ||
-    (weather?.precipitationStatus === "Heavy" && (weather?.windStatus === "High" || (weather?.cloudCover ?? 0) > 85))
+    weather?.precipitationStatus === "Heavy" ||
+    weather?.windStatus === "High" ||
+    (weather?.windGusts ?? 0) >= 60 ||
+    weather?.operationalRisk === "High"
 }
 
-export function weatherImpactSummary(intent, weather, impactedCount) {
-  if (intent.impactType === "rain") {
-    return impactedCount
-      ? `${impactedCount} flights flagged for area-level rain impact.`
-      : "No significant rain impact detected."
+export function impactTypeLabel(impactType) {
+  if (impactType === "storm") return "Storm"
+  if (impactType === "rain") return "Rain"
+  if (impactType === "wind") return "High Wind"
+  if (impactType === "visibility") return "Poor Visibility"
+  if (impactType === "general_weather") return "General Weather"
+  return "Weather"
+}
+
+export function detectWeatherImpact(intent, weather) {
+  if (!weather || !intent.impactType) {
+    return {
+      detected: false,
+      reason: "No weather-impact query detected.",
+      contributors: [],
+    }
   }
+
   if (intent.impactType === "storm") {
-    return impactedCount
-      ? `${impactedCount} flights flagged near storm-like area conditions.`
-      : "No storm-like conditions detected near this area."
+    const contributors = []
+    if ([95, 96, 99].includes(weather.weatherCode)) contributors.push("thunderstorm weather code")
+    if (weather.precipitationStatus === "Heavy") contributors.push("heavy precipitation")
+    if (weather.windStatus === "High") contributors.push("high wind")
+    if ((weather.windGusts ?? 0) >= 60) contributors.push("wind gusts >= 60 km/h")
+    if (weather.operationalRisk === "High") contributors.push("high operational risk")
+    return {
+      detected: contributors.length > 0,
+      reason: contributors.length
+        ? "Storm-like area conditions detected from current Open-Meteo data."
+        : "No storm-like conditions detected near this area.",
+      contributors,
+    }
   }
+
+  if (intent.impactType === "rain") {
+    const contributors = []
+    if (weather.precipitationStatus === "Moderate" || weather.precipitationStatus === "Heavy") contributors.push(`${weather.precipitationStatus.toLowerCase()} precipitation`)
+    if ((weather.rain ?? 0) > 0) contributors.push("rain reported")
+    if ((weather.precipitation ?? 0) > 0) contributors.push("precipitation reported")
+    return {
+      detected: contributors.length > 0,
+      reason: contributors.length
+        ? "Rain impact detected from current Open-Meteo data."
+        : "No significant rain impact detected.",
+      contributors,
+    }
+  }
+
   if (intent.impactType === "wind") {
-    return impactedCount
-      ? `${impactedCount} flights flagged for high wind conditions.`
-      : "No high-wind flight impact detected."
+    const contributors = []
+    if (weather.windStatus === "High") contributors.push("high wind status")
+    if ((weather.windSpeed ?? 0) >= 45) contributors.push("wind speed >= 45 km/h")
+    if ((weather.windGusts ?? 0) >= 60) contributors.push("wind gusts >= 60 km/h")
+    return {
+      detected: contributors.length > 0,
+      reason: contributors.length
+        ? "High wind/gust conditions detected near this area."
+        : "No high-wind flight impact detected.",
+      contributors,
+    }
   }
-  if (intent.impactType === "risk") {
-    return weather?.operationalRisk
-      ? `Aviation weather risk is ${weather.operationalRisk}.`
-      : null
+
+  if (intent.impactType === "visibility") {
+    const contributors = []
+    if (weather.visibilityStatus === "Poor" || weather.visibilityStatus === "Very Poor") contributors.push(`${weather.visibilityStatus.toLowerCase()} visibility`)
+    if ((weather.visibility ?? Infinity) < 5000) contributors.push("visibility < 5 km")
+    return {
+      detected: contributors.length > 0,
+      reason: contributors.length
+        ? "Poor visibility conditions detected near this area."
+        : "No poor-visibility impact detected.",
+      contributors,
+    }
   }
-  return null
+
+  const contributors = []
+  if (weather.operationalRisk === "Medium" || weather.operationalRisk === "High") contributors.push(`${weather.operationalRisk.toLowerCase()} operational risk`)
+  return {
+    detected: contributors.length > 0,
+    reason: contributors.length
+      ? "Area-level weather impact detected from operational risk."
+      : "No significant area-level weather impact detected.",
+    contributors,
+  }
+}
+
+export function buildWeatherImpactAssessment(intent, weather, flightCount) {
+  if (!intent.impactMode) return null
+  const result = detectWeatherImpact(intent, weather)
+  return {
+    impactMode: true,
+    impactType: intent.impactType,
+    impactTypeLabel: impactTypeLabel(intent.impactType),
+    flightsInArea: flightCount,
+    impactedCount: result.detected ? flightCount : 0,
+    detected: result.detected,
+    assessment: result.reason,
+    contributors: result.contributors,
+    honestyLabel: "Impact assessment is area-level based on Open-Meteo conditions, not radar cell tracking.",
+  }
 }
 
 export function shouldMarkFlightsImpacted(intent, weather) {
-  if (!weather || !intent.impactType) return false
-  if (intent.impactType === "rain") {
-    return weather.precipitationStatus === "Moderate" || weather.precipitationStatus === "Heavy" || (weather.rain ?? 0) >= 2
-  }
-  if (intent.impactType === "storm") {
-    return isStormLike(weather)
-  }
-  if (intent.impactType === "wind") {
-    return weather.windStatus === "High" || (weather.windSpeed ?? 0) > 45 || (weather.windGusts ?? 0) > 60
-  }
-  return false
+  return detectWeatherImpact(intent, weather).detected
+}
+
+export function weatherImpactSummary(intent, weather, impactedCount) {
+  const assessment = buildWeatherImpactAssessment(intent, weather, impactedCount)
+  if (!assessment) return null
+  return assessment.detected
+    ? "Weather impact detected for this area."
+    : assessment.assessment
 }

@@ -32,6 +32,7 @@
   font-size: 16px;
   height: 30px;
   justify-content: center;
+  position: relative;
   transition: border-color 180ms ease, background-color 180ms ease, box-shadow 180ms ease;
   width: 30px;
 }
@@ -59,6 +60,28 @@
   border-color: #67e8f9;
   color: #cffafe;
   box-shadow: 0 0 16px rgba(34, 211, 238, 0.48);
+}
+.discover-plane.is-weather-impacted {
+  background: rgba(245, 158, 11, 0.16);
+  border-color: rgba(245, 158, 11, 0.95);
+  color: #fbbf24;
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.18), 0 0 18px rgba(245, 158, 11, 0.42);
+}
+.discover-plane.is-weather-impacted::after {
+  background: #f59e0b;
+  border: 1px solid rgba(0, 0, 0, 0.45);
+  border-radius: 9999px;
+  content: "!";
+  color: #111827;
+  font-size: 9px;
+  font-weight: 800;
+  height: 13px;
+  line-height: 11px;
+  position: absolute;
+  right: -3px;
+  text-align: center;
+  top: -3px;
+  width: 13px;
 }
 .discover-density-halo {
   filter: blur(12px);
