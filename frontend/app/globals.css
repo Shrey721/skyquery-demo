@@ -18,6 +18,54 @@
 .leaflet-control-attribution a { color: #64748b !important; }
 .leaflet-bar { border: 1px solid rgba(255,255,255,0.08) !important; border-radius: 8px !important; overflow: hidden; }
 .leaflet-bar a { border-bottom-color: rgba(255,255,255,0.06) !important; }
+.discover-marker-shell {
+  background: transparent;
+  border: 0;
+}
+.discover-plane {
+  align-items: center;
+  background: rgba(34, 211, 238, 0.1);
+  border: 1px solid rgba(34, 211, 238, 0.52);
+  border-radius: 9999px;
+  color: #22d3ee;
+  display: flex;
+  font-size: 16px;
+  height: 30px;
+  justify-content: center;
+  transition: border-color 180ms ease, background-color 180ms ease, box-shadow 180ms ease;
+  width: 30px;
+}
+.discover-plane.is-density {
+  background: rgba(34, 211, 238, 0.035);
+  border-color: rgba(34, 211, 238, 0.24);
+  color: rgba(103, 232, 249, 0.72);
+  font-size: 11px;
+  height: 19px;
+  width: 19px;
+}
+.discover-plane.is-regional {
+  background: rgba(34, 211, 238, 0.055);
+  border-color: rgba(34, 211, 238, 0.37);
+  color: rgba(103, 232, 249, 0.88);
+  font-size: 13px;
+  height: 23px;
+  width: 23px;
+}
+.discover-plane.is-aircraft {
+  box-shadow: 0 0 8px rgba(34, 211, 238, 0.14);
+}
+.discover-plane.is-selected {
+  background: rgba(34, 211, 238, 0.2);
+  border-color: #67e8f9;
+  color: #cffafe;
+  box-shadow: 0 0 16px rgba(34, 211, 238, 0.48);
+}
+.discover-density-halo {
+  filter: blur(12px);
+}
+.discover-density-core {
+  filter: blur(4px);
+}
 
 
 :root {

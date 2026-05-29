@@ -2,7 +2,8 @@
 
 import { useState, useCallback, useEffect, useRef } from "react"
 import { AnimatePresence, motion } from "framer-motion"
-import { PanelLeft, LogOut } from "lucide-react"
+import Link from "next/link"
+import { MessageSquare, PanelLeft, LogOut, Search } from "lucide-react"
 import { AnimatedWave } from "@/components/animated-wave"
 import { LandingHero } from "@/components/landing-hero"
 import { ChatSidebar } from "@/components/chat-sidebar"
@@ -1215,6 +1216,16 @@ export default function SkyQueryApp() {
                   <span className="hidden sm:inline">{connection ? activeCatalogSchema || "Scope not selected" : "Setup needed"}</span>
                 </div>
               </div>
+              <nav className="absolute left-1/2 flex -translate-x-1/2 items-center rounded-lg border border-border/30 bg-secondary/20 p-1">
+                <span className="flex items-center gap-2 rounded-md bg-primary/15 px-4 py-2 text-sm text-primary">
+                  <MessageSquare className="h-4 w-4" />
+                  Chat
+                </span>
+                <Link href="/discover" className="flex items-center gap-2 rounded-md px-4 py-2 text-sm text-muted-foreground transition hover:text-foreground">
+                  <Search className="h-4 w-4" />
+                  Discover
+                </Link>
+              </nav>
               <div className="flex items-center gap-3">
                 {/* Via GitHub Copilot label */}
                 <span className="hidden text-xs text-muted-foreground/50 sm:inline">

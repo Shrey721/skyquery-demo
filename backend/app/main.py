@@ -44,6 +44,7 @@ app.include_router(history.router, prefix=f"{settings.API_V1_STR}/history", tags
 from app.api.routes.query import router as query_router
 app.include_router(query_router, tags=["query"])
 app.include_router(flights_router, prefix=f"{settings.API_V1_STR}", tags=["flights"])
+app.include_router(flights_router, prefix="/api/public", tags=["public-flights"])
 
 @app.get("/")
 def root():

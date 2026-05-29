@@ -24,6 +24,16 @@ export interface LiveAircraft {
   origin_country: string
 }
 
+interface NormalizedPublicAircraft {
+  callsign: string
+  latitude: number
+  longitude: number
+  altitude_ft: number | null
+  speed_kts: number | null
+  heading: number | null
+  origin_country: string
+}
+
 interface GeoMapProps {
   // Query-result mode
   rows?: any[]
@@ -601,9 +611,11 @@ function useLiveAircraft(active: boolean) {
         const message = typeof providerDetail === "object"
           ? providerDetail.message
           : providerDetail
-        const category = typeof providerDetail === "object"
-          ? providerDetail.provider_error_category
-          : "unknown"
+        const category = res.status === 429
+          ? "rate_limited"
+          : typeof providerDetail === "object"
+            ? providerDetail.provider_error_category
+            : "unknown"
         console.warn("Live airspace provider unavailable", { endpoint, status: res.status, provider_error_category: category })
         if (category === "rate_limited") {
           cooldownUntilRef.current = Date.now() + LIVE_RATE_LIMIT_COOLDOWN_SECONDS * 1000
@@ -617,7 +629,20 @@ function useLiveAircraft(active: boolean) {
         throw providerError
       }
       const data = await res.json()
-      const liveAircraft = Array.isArray(data) ? data : data.aircraft ?? []
+      const liveAircraft = (Array.isArray(data) ? data : data.aircraft ?? []).map((aircraft: LiveAircraft | NormalizedPublicAircraft) => {
+        if ("latitude" in aircraft) {
+          return {
+            callsign: aircraft.callsign,
+            lat: aircraft.latitude,
+            lon: aircraft.longitude,
+            altitude: aircraft.altitude_ft ?? 0,
+            velocity: aircraft.speed_kts ?? 0,
+            heading: aircraft.heading ?? 0,
+            origin_country: aircraft.origin_country,
+          }
+        }
+        return aircraft
+      })
       console.debug("Live airspace aircraft received", { endpoint, aircraft_count: liveAircraft.length })
       cooldownUntilRef.current = 0
       setRetryAfterSeconds(0)
