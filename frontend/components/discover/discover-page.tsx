@@ -12,6 +12,7 @@ import { fetchPublicFlights, type LiveAircraft, type MapBounds } from "@/lib/pub
 import { fetchWeather, regionFromBounds, regionFromSearch, type WeatherIntelligence, type WeatherRegion } from "@/lib/weather-api"
 import { isAllowedWeatherFetchReason } from "@/lib/weather-refresh-policy.mjs"
 import { boundsAroundLocation, resolveLocationQuery } from "@/lib/location-search.mjs"
+import { parseDiscoverQuery, requestedWeatherMetricSummary, shouldMarkFlightsImpacted, weatherImpactSummary } from "@/lib/discover-query-intent.mjs"
 
 const AviationMap = dynamic(() => import("./aviation-map").then((module) => module.AviationMap), { ssr: false })
 
@@ -27,6 +28,7 @@ export function DiscoverPage() {
   const [weatherRegion, setWeatherRegion] = useState<WeatherRegion | null>(null)
   const [weatherLoading, setWeatherLoading] = useState(false)
   const [weatherError, setWeatherError] = useState<string | null>(null)
+  const [weatherSummary, setWeatherSummary] = useState<string | null>(null)
   const [focusLocation, setFocusLocation] = useState<{ latitude: number; longitude: number; zoom?: number; nonce: number } | null>(null)
   const [submittedSearchRegion, setSubmittedSearchRegion] = useState<WeatherRegion | null>(null)
   const [search, setSearch] = useState("")
@@ -51,11 +53,13 @@ export function DiscoverPage() {
       setDataStatus(response.data_status ?? (response.cached ? "cached" : "live"))
       setError(response.stale ? "Live flights temporarily unavailable. Showing cached data." : response.message ?? null)
       setSelected((current) => current && response.aircraft.find((flight) => flight.icao24 === current.icao24) || null)
+      return response
     } catch (loadError: any) {
       if (requestId !== requestIdRef.current) return
       if (loadError.name !== "AbortError") {
         setError(loadError.message || "Public flight API unavailable.")
       }
+      return null
     } finally {
       if (requestId === requestIdRef.current) setLoading(false)
     }
@@ -81,9 +85,11 @@ export function DiscoverPage() {
       setWeather(response)
       weatherRef.current = response
       setWeatherError(response.message ?? null)
+      return response
     } catch (loadError: any) {
       if (requestId !== weatherRequestIdRef.current) return
       setWeatherError(weatherRef.current ? "Weather temporarily unavailable. Showing cached data." : loadError.message || "Weather data unavailable.")
+      return weatherRef.current
     } finally {
       if (requestId === weatherRequestIdRef.current) setWeatherLoading(false)
     }
@@ -102,6 +108,7 @@ export function DiscoverPage() {
   const submitSearch = useCallback(() => {
     async function runSearch() {
       try {
+        const intent = parseDiscoverQuery(search)
         const location = await resolveLocationQuery(search)
         if (!location) {
           setError("Could not resolve this location. Try a city, airport code, or country.")
@@ -125,10 +132,21 @@ export function DiscoverPage() {
         })
         setBounds(searchBounds)
         setError(null)
-        await Promise.all([
+        setWeatherSummary(null)
+        const [flightResponse, weatherResponse] = await Promise.all([
           loadFlights(searchBounds, { forceRefresh: true, reason: "search_submit" }),
           fetchWeatherForLocation("search_submit", region),
         ])
+        if (flightResponse && weatherResponse && intent.impactType) {
+          const impacted = shouldMarkFlightsImpacted(intent, weatherResponse)
+          const markedAircraft = flightResponse.aircraft.map((flight) => ({ ...flight, weather_impacted: impacted }))
+          setAircraft(markedAircraft)
+          setWeatherSummary(weatherImpactSummary(intent, weatherResponse, impacted ? markedAircraft.length : 0))
+        } else if (weatherResponse && intent.impactType) {
+          setWeatherSummary(weatherImpactSummary(intent, weatherResponse, 0))
+        } else if (weatherResponse) {
+          setWeatherSummary(requestedWeatherMetricSummary(intent, weatherResponse, flightResponse?.aircraft.length ?? 0))
+        }
       } catch {
         setError("Could not resolve this location. Try a city, airport code, or country.")
       }
@@ -214,6 +232,7 @@ export function DiscoverPage() {
           weatherRegion={weatherRegion}
           weatherLoading={weatherLoading}
           weatherError={weatherError}
+          weatherSummary={weatherSummary}
           onRefreshWeather={refreshWeather}
         />
       </main>

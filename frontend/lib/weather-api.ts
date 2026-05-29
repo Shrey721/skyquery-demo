@@ -14,11 +14,27 @@ export interface WeatherIntelligence {
   latitude?: number
   longitude?: number
   temperature: number | null
+  apparentTemperature?: number | null
+  humidity?: number | null
+  rain?: number | null
+  showers?: number | null
+  snowfall?: number | null
+  pressureMsl?: number | null
+  surfacePressure?: number | null
   windSpeed: number | null
   windDirection: number | null
+  windGusts?: number | null
   cloudCover: number | null
   precipitation: number | null
   visibility: number | null
+  weatherCode?: number | null
+  weatherCondition?: string | null
+  operationalRisk?: AviationRiskLevel
+  riskContributors?: string[]
+  visibilityStatus?: string
+  precipitationStatus?: string
+  windStatus?: string
+  lastUpdated?: string
   riskLevel: AviationRiskLevel
   fetched_at?: string
   cached?: boolean

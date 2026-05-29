@@ -22,6 +22,7 @@ export interface LiveAircraft {
   vertical_rate: number | null
   last_seen: string | null
   on_ground: boolean
+  weather_impacted?: boolean
 }
 
 export interface LiveFlightsResponse {

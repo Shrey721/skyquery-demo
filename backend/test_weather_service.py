@@ -47,11 +47,20 @@ class WeatherServiceTests(unittest.IsolatedAsyncioTestCase):
         return {
             "current": {
                 "temperature_2m": 33.2,
+                "apparent_temperature": 36.1,
+                "relative_humidity_2m": 62,
                 "wind_speed_10m": 18.5,
                 "wind_direction_10m": 250,
+                "wind_gusts_10m": 26,
                 "cloud_cover": 42,
                 "precipitation": 0,
+                "rain": 0,
+                "showers": 0,
+                "snowfall": 0,
+                "pressure_msl": 1008.5,
+                "surface_pressure": 995.2,
                 "visibility": 10000,
+                "weather_code": 2,
             }
         }
 
@@ -68,8 +77,18 @@ class WeatherServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(FakeClient.call_count, 1)
         self.assertIn("temperature_2m", FakeClient.last_params["current"])
         self.assertEqual(first["temperature"], 33.2)
+        self.assertEqual(first["apparentTemperature"], 36.1)
+        self.assertEqual(first["humidity"], 62)
         self.assertEqual(first["windSpeed"], 18.5)
+        self.assertEqual(first["windGusts"], 26)
+        self.assertEqual(first["operationalRisk"], "Low")
         self.assertEqual(first["riskLevel"], "Low")
+        self.assertEqual(first["visibilityStatus"], "Good")
+        self.assertEqual(first["precipitationStatus"], "None")
+        self.assertEqual(first["windStatus"], "Low")
+        self.assertEqual(first["weatherCode"], 2)
+        self.assertEqual(first["weatherCondition"], "Partly cloudy")
+        self.assertIn("lastUpdated", first)
         self.assertTrue(second["cached"])
 
     async def test_weather_cache_expires(self):
@@ -126,10 +145,21 @@ class WeatherServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(second["message"], weather_service.WEATHER_STALE_MESSAGE)
 
     def test_risk_levels_include_compounding_conditions(self):
-        self.assertEqual(weather_service.calculate_aviation_risk(15, 0, 10000, 20), "Low")
-        self.assertEqual(weather_service.calculate_aviation_risk(30, 0, 10000, 20), "Medium")
-        self.assertEqual(weather_service.calculate_aviation_risk(30, 2, 10000, 20), "High")
-        self.assertEqual(weather_service.calculate_aviation_risk(10, 0, 1500, 20), "High")
+        self.assertEqual(weather_service.calculate_aviation_risk(15, 0, 10000, 20, 20), "Low")
+        self.assertEqual(weather_service.calculate_aviation_risk(31, 0, 10000, 20, 35), "Medium")
+        self.assertEqual(weather_service.calculate_aviation_risk(20, 8, 10000, 20, 35), "High")
+        self.assertEqual(weather_service.calculate_aviation_risk(10, 0, 1500, 20, 20), "High")
+        self.assertEqual(weather_service.calculate_aviation_risk(10, 0, 10000, 20, 65), "High")
+
+    def test_visibility_and_precipitation_statuses(self):
+        self.assertEqual(weather_service.visibility_status(12000), "Good")
+        self.assertEqual(weather_service.visibility_status(8000), "Moderate")
+        self.assertEqual(weather_service.visibility_status(3000), "Poor")
+        self.assertEqual(weather_service.visibility_status(1000), "Very Poor")
+        self.assertEqual(weather_service.precipitation_status(0), "None")
+        self.assertEqual(weather_service.precipitation_status(1.2), "Light")
+        self.assertEqual(weather_service.precipitation_status(3), "Moderate")
+        self.assertEqual(weather_service.precipitation_status(8), "Heavy")
 
 
 if __name__ == "__main__":

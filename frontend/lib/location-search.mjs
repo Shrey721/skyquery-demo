@@ -23,7 +23,7 @@ export function normalizeLocationQuery(query) {
     .trim()
     .toLowerCase()
     .replace(/[^\p{L}\p{N}\s]/gu, " ")
-    .replace(/\b(show|find|get|list|live|current|weather|flights|flight|aircraft|planes|over|near|around|in|at|above|for|the|me)\b/gi, " ")
+    .replace(/\b(show|find|get|list|live|current|weather|flights|flight|aircraft|planes|airspace|traffic|temperature|wind|speed|rain|cloud|cover|visibility|aviation|risk|affected|storm|high|over|near|around|in|at|above|for|the|me|and|by)\b/gi, " ")
     .replace(/\s+/g, " ")
     .trim()
 }
