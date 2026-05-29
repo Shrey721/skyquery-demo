@@ -5,14 +5,22 @@ import { Activity, Plane, Search } from "lucide-react"
 interface DiscoverFiltersProps {
   search: string
   onSearchChange: (search: string) => void
+  onSearchSubmit?: () => void
   showOnGround: boolean
   onToggleOnGround: () => void
+  weatherConnected?: boolean
 }
 
-export function DiscoverFilters({ search, onSearchChange, showOnGround, onToggleOnGround }: DiscoverFiltersProps) {
+export function DiscoverFilters({ search, onSearchChange, onSearchSubmit, showOnGround, onToggleOnGround, weatherConnected = false }: DiscoverFiltersProps) {
   return (
     <div className="flex flex-wrap items-center gap-3 border-b border-border/30 bg-background/70 px-4 py-3 backdrop-blur-lg">
-      <div className="relative min-w-[260px] flex-1 max-w-md">
+      <form
+        className="relative min-w-[260px] flex-1 max-w-md"
+        onSubmit={(event) => {
+          event.preventDefault()
+          onSearchSubmit?.()
+        }}
+      >
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <input
           value={search}
@@ -20,7 +28,7 @@ export function DiscoverFilters({ search, onSearchChange, showOnGround, onToggle
           placeholder="Search callsign, ICAO24, country..."
           className="w-full rounded-lg border border-border/50 bg-secondary/40 py-2 pl-10 pr-3 text-sm outline-none transition focus:border-primary/50"
         />
-      </div>
+      </form>
       <span className="flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 text-xs font-medium text-primary">
         <Plane className="h-3.5 w-3.5" /> Live Airspace
       </span>
@@ -33,7 +41,9 @@ export function DiscoverFilters({ search, onSearchChange, showOnGround, onToggle
       >
         Include on-ground aircraft
       </button>
-      <span className="text-xs text-muted-foreground">Weather data unavailable</span>
+      <span className={`text-xs ${weatherConnected ? "text-emerald-400" : "text-muted-foreground"}`}>
+        Weather {weatherConnected ? "connected" : "loading"}
+      </span>
     </div>
   )
 }

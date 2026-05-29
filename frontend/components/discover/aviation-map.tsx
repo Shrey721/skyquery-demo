@@ -8,6 +8,7 @@ interface AviationMapProps {
   selectedAircraft: LiveAircraft | null
   onSelectAircraft: (aircraft: LiveAircraft) => void
   onBoundsChange: (bounds: MapBounds) => void
+  focusLocation?: { latitude: number; longitude: number; zoom?: number; nonce: number } | null
 }
 
 type TrafficView = "density" | "regional" | "aircraft"
@@ -81,7 +82,7 @@ function sampleAircraft(map: any, aircraft: LiveAircraft[], cap: number, cellSiz
   return sampled
 }
 
-export function AviationMap({ aircraft, selectedAircraft, onSelectAircraft, onBoundsChange }: AviationMapProps) {
+export function AviationMap({ aircraft, selectedAircraft, onSelectAircraft, onBoundsChange, focusLocation }: AviationMapProps) {
   const hostRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<any>(null)
   const leafletRef = useRef<any>(null)
@@ -102,6 +103,12 @@ export function AviationMap({ aircraft, selectedAircraft, onSelectAircraft, onBo
     onBoundsRef.current = onBoundsChange
     renderRef.current()
   }, [aircraft, onBoundsChange, onSelectAircraft, selectedAircraft])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !focusLocation) return
+    map.setView([focusLocation.latitude, focusLocation.longitude], focusLocation.zoom ?? 8, { animate: true })
+  }, [focusLocation])
 
   renderRef.current = () => {
     const L = leafletRef.current

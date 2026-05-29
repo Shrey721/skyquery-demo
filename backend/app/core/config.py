@@ -80,6 +80,9 @@ class Settings(BaseSettings):
     OPENSKY_TIMEOUT_SECONDS: float = Field(8.0, gt=0)
     OPENSKY_CACHE_TTL_SECONDS: int = Field(90, ge=0)
     OPENSKY_STALE_TTL_SECONDS: int = Field(300, ge=0)
+    OPEN_METEO_API_URL: str = "https://api.open-meteo.com/v1/forecast"
+    OPEN_METEO_TIMEOUT_SECONDS: float = Field(8.0, gt=0)
+    WEATHER_CACHE_TTL_SECONDS: int = Field(600, ge=0)
     ENABLE_MOCK_DATA: bool = False
     ENABLE_DEV_FALLBACKS: bool = False
 

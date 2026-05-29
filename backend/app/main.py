@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.api.routes import connections, metadata, auth, history
 from app.api.routes.flights import router as flights_router
+from app.api.routes.weather import router as weather_router
 from app.models.connection import Base
 from app.models.user import User  # Import User to ensure tables are created
 from app.models.chat_history import ChatHistory  # Import ChatHistory to ensure tables are created
@@ -45,6 +46,8 @@ from app.api.routes.query import router as query_router
 app.include_router(query_router, tags=["query"])
 app.include_router(flights_router, prefix=f"{settings.API_V1_STR}", tags=["flights"])
 app.include_router(flights_router, prefix="/api/public", tags=["public-flights"])
+app.include_router(weather_router, prefix="/api", tags=["weather"])
+app.include_router(weather_router, prefix=f"{settings.API_V1_STR}", tags=["weather"])
 
 @app.get("/")
 def root():

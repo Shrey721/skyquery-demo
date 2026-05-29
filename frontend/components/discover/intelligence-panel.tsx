@@ -1,8 +1,9 @@
 "use client"
 
 import Link from "next/link"
-import { Activity, Database, MapPin, Plane, Radio, Sparkles } from "lucide-react"
+import { Activity, CloudRain, Database, MapPin, Plane, Radio, RefreshCw, Sparkles } from "lucide-react"
 import type { LiveAircraft, MapBounds } from "@/lib/public-flights-api"
+import type { WeatherIntelligence, WeatherRegion } from "@/lib/weather-api"
 
 const REFERENCE_AIRPORTS = [
   { code: "DEL", name: "Indira Gandhi International", latitude: 28.5562, longitude: 77.1 },
@@ -15,6 +16,12 @@ function displayNumber(value: number | null, unit = "") {
   return value == null ? "Unavailable" : `${Math.round(value).toLocaleString()}${unit}`
 }
 
+function riskClass(risk?: string) {
+  if (risk === "High") return "bg-red-500/10 text-red-300"
+  if (risk === "Medium") return "bg-amber-500/10 text-amber-300"
+  return "bg-emerald-500/10 text-emerald-300"
+}
+
 function distanceNm(flight: LiveAircraft, airport: (typeof REFERENCE_AIRPORTS)[number]) {
   const radians = Math.PI / 180
   const dLat = (airport.latitude - flight.latitude) * radians
@@ -23,12 +30,28 @@ function distanceNm(flight: LiveAircraft, airport: (typeof REFERENCE_AIRPORTS)[n
   return Math.round(3440 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)))
 }
 
-export function IntelligencePanel({ aircraft, selected, loading, apiConnected, bounds }: {
+export function IntelligencePanel({
+  aircraft,
+  selected,
+  loading,
+  apiConnected,
+  bounds,
+  weather,
+  weatherRegion,
+  weatherLoading = false,
+  weatherError,
+  onRefreshWeather,
+}: {
   aircraft: LiveAircraft[]
   selected: LiveAircraft | null
   loading: boolean
   apiConnected: boolean
   bounds?: MapBounds | null
+  weather?: WeatherIntelligence | null
+  weatherRegion?: WeatherRegion | null
+  weatherLoading?: boolean
+  weatherError?: string | null
+  onRefreshWeather?: () => void
 }) {
   const airborne = aircraft.filter((flight) => !flight.on_ground)
   const altitudes = airborne.flatMap((flight) => flight.altitude_ft == null ? [] : [flight.altitude_ft])
@@ -55,8 +78,42 @@ export function IntelligencePanel({ aircraft, selected, loading, apiConnected, b
         <h2 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider"><Database className="h-4 w-4 text-primary" /> Data Sources</h2>
         <div className="rounded-xl border border-border/40 bg-secondary/20 p-3 text-xs">
           <div className="flex justify-between"><span>OpenSky Network</span><span className={apiConnected ? "text-emerald-400" : "text-muted-foreground"}>{loading ? "Connecting..." : apiConnected ? "Connected" : "Unavailable"}</span></div>
-          <div className="mt-2 flex justify-between text-muted-foreground"><span>Weather</span><span>Not connected</span></div>
+          <div className="mt-2 flex justify-between text-muted-foreground">
+            <span>Open-Meteo</span>
+            <span className={weather ? "text-emerald-400" : "text-muted-foreground"}>{weatherLoading ? "Connecting..." : weather ? "Connected" : "Unavailable"}</span>
+          </div>
           <div className="mt-2 flex justify-between text-muted-foreground"><span>Enterprise</span><span>Not connected</span></div>
+        </div>
+      </section>
+      <section className="mb-5 space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider"><CloudRain className="h-4 w-4 text-primary" /> Weather</h2>
+          <button
+            onClick={onRefreshWeather}
+            disabled={weatherLoading || !onRefreshWeather}
+            className="inline-flex items-center gap-1 rounded-md border border-border/40 bg-secondary/30 px-2 py-1 text-[11px] text-muted-foreground transition hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <RefreshCw className={`h-3 w-3 ${weatherLoading ? "animate-spin" : ""}`} /> Refresh Weather
+          </button>
+        </div>
+        <div className="rounded-xl border border-border/40 bg-secondary/20 p-3 text-xs">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <span className="text-muted-foreground">{weatherRegion?.label ?? "Current view"}</span>
+            <span className={`rounded-md px-2 py-1 text-[11px] font-medium ${riskClass(weather?.riskLevel)}`}>
+              {weatherLoading ? "Loading" : weather?.riskLevel ?? "Unavailable"}
+            </span>
+          </div>
+          {weatherError && <p className="mb-3 rounded-lg bg-amber-500/10 px-3 py-2 text-amber-200">{weatherError}</p>}
+          <div className="grid grid-cols-2 gap-2">
+            <Metric label="Temp" value={weatherLoading && !weather ? "Loading" : displayNumber(weather?.temperature ?? null, " C")} />
+            <Metric label="Wind" value={weatherLoading && !weather ? "Loading" : displayNumber(weather?.windSpeed ?? null, " km/h")} />
+            <Metric label="Clouds" value={weatherLoading && !weather ? "Loading" : displayNumber(weather?.cloudCover ?? null, "%")} />
+            <Metric label="Precip" value={weatherLoading && !weather ? "Loading" : displayNumber(weather?.precipitation ?? null, " mm")} />
+          </div>
+          <div className="mt-3 flex justify-between gap-3 text-[11px] text-muted-foreground">
+            <span>Source: Open-Meteo</span>
+            {weather?.fetched_at && <span>Last updated at {new Date(weather.fetched_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>}
+          </div>
         </div>
       </section>
       <section className="mb-5 space-y-3">
@@ -103,7 +160,7 @@ export function IntelligencePanel({ aircraft, selected, loading, apiConnected, b
         {["Show airports with high traffic in this view", "Summarize live airspace anomalies"].map((question) => (
           <Link key={question} href={`/?q=${encodeURIComponent(question)}`} className="block rounded-lg bg-secondary/30 p-2 text-xs text-muted-foreground hover:text-foreground">{question}</Link>
         ))}
-        <p className="flex items-center gap-1 text-[11px] text-muted-foreground"><Radio className="h-3 w-3" /> Enterprise source not connected. Weather data unavailable.</p>
+        <p className="flex items-center gap-1 text-[11px] text-muted-foreground"><Radio className="h-3 w-3" /> Enterprise source not connected. Weather from Open-Meteo.</p>
       </section>
     </aside>
   )
