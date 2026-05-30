@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react"
 import type { LiveAircraft, MapBounds } from "@/lib/public-flights-api"
+import type { NearbyAirport } from "@/lib/nearby-airports-api"
 
 interface AviationMapProps {
   aircraft: LiveAircraft[]
@@ -9,6 +10,8 @@ interface AviationMapProps {
   onSelectAircraft: (aircraft: LiveAircraft) => void
   onBoundsChange: (bounds: MapBounds) => void
   focusLocation?: { latitude: number; longitude: number; zoom?: number; nonce: number } | null
+  airports?: NearbyAirport[]
+  showAirports?: boolean
 }
 
 type TrafficView = "density" | "regional" | "aircraft"
@@ -62,6 +65,49 @@ function planeIcon(L: any, flight: LiveAircraft, selected: boolean, view: Traffi
   })
 }
 
+function airportIcon(L: any, airport: NearbyAirport) {
+  return L.divIcon({
+    className: "discover-marker-shell",
+    html: `<span class="discover-airport-marker" aria-hidden="true"><svg viewBox="0 0 28 28" focusable="false"><circle cx="14" cy="14" r="10.5" /><path d="M14 7.5v13" /><path d="M10 11.5h8" /><path d="M11.5 18.5h5" /></svg></span>`,
+    iconSize: [28, 28],
+    iconAnchor: [14, 14],
+  })
+}
+
+function airportTooltip(airport: NearbyAirport) {
+  const cityLine = [airport.city, airport.country].filter(Boolean).map(escapeHtml).join(", ")
+  return `
+    <div class="discover-airport-tooltip">
+      <strong>${escapeHtml(airport.code || airport.ident || "Airport")}</strong>
+      <span>${escapeHtml(airport.name || "Unknown airport")}</span>
+      ${cityLine ? `<span>${cityLine}</span>` : ""}
+      <span>${Math.round(airport.distanceNm)} nm</span>
+      <span>${escapeHtml(airport.type || "airport")}</span>
+    </div>
+  `
+}
+
+function airportPopup(airport: NearbyAirport) {
+  const city = airport.city ? `${escapeHtml(airport.city)}, ` : ""
+  return `
+    <div class="discover-airport-popup">
+      <strong>${escapeHtml(airport.code || airport.ident || "Airport")}</strong>
+      <span>${escapeHtml(airport.name || "Unknown airport")}</span>
+      <span>${city}${escapeHtml(airport.country || "Unknown")}</span>
+      <span>${Math.round(airport.distanceNm)} nm / ${escapeHtml(airport.type || "airport")}</span>
+    </div>
+  `
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;")
+}
+
 function sampleAircraft(map: any, aircraft: LiveAircraft[], cap: number, cellSize: number): LiveAircraft[] {
   if (aircraft.length <= cap) return aircraft
   const cells = densityCells(map, aircraft, cellSize)
@@ -83,13 +129,16 @@ function sampleAircraft(map: any, aircraft: LiveAircraft[], cap: number, cellSiz
   return sampled
 }
 
-export function AviationMap({ aircraft, selectedAircraft, onSelectAircraft, onBoundsChange, focusLocation }: AviationMapProps) {
+export function AviationMap({ aircraft, selectedAircraft, onSelectAircraft, onBoundsChange, focusLocation, airports = [], showAirports = false }: AviationMapProps) {
   const hostRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<any>(null)
   const leafletRef = useRef<any>(null)
   const densityLayerRef = useRef<any>(null)
   const aircraftLayerRef = useRef<any>(null)
+  const airportLayerRef = useRef<any>(null)
   const aircraftRef = useRef(aircraft)
+  const airportsRef = useRef(airports)
+  const showAirportsRef = useRef(showAirports)
   const selectedRef = useRef(selectedAircraft)
   const onSelectRef = useRef(onSelectAircraft)
   const onBoundsRef = useRef(onBoundsChange)
@@ -99,11 +148,13 @@ export function AviationMap({ aircraft, selectedAircraft, onSelectAircraft, onBo
 
   useEffect(() => {
     aircraftRef.current = aircraft
+    airportsRef.current = airports
+    showAirportsRef.current = showAirports
     selectedRef.current = selectedAircraft
     onSelectRef.current = onSelectAircraft
     onBoundsRef.current = onBoundsChange
     renderRef.current()
-  }, [aircraft, onBoundsChange, onSelectAircraft, selectedAircraft])
+  }, [aircraft, airports, onBoundsChange, onSelectAircraft, selectedAircraft, showAirports])
 
   useEffect(() => {
     const map = mapRef.current
@@ -116,13 +167,15 @@ export function AviationMap({ aircraft, selectedAircraft, onSelectAircraft, onBo
     const map = mapRef.current
     const densityLayer = densityLayerRef.current
     const aircraftLayer = aircraftLayerRef.current
-    if (!L || !map || !densityLayer || !aircraftLayer) return
+    const airportLayer = airportLayerRef.current
+    if (!L || !map || !densityLayer || !aircraftLayer || !airportLayer) return
 
     const zoom = map.getZoom()
     const view = trafficViewAtZoom(zoom)
     const currentAircraft = aircraftRef.current
     densityLayer.clearLayers()
     aircraftLayer.clearLayers()
+    airportLayer.clearLayers()
     setTrafficView(view)
 
     if (view !== "aircraft") {
@@ -172,6 +225,27 @@ export function AviationMap({ aircraft, selectedAircraft, onSelectAircraft, onBo
       if (view === "aircraft") marker.on("click", () => onSelectRef.current(flight))
       marker.addTo(aircraftLayer)
     })
+    if (showAirportsRef.current) {
+      airportsRef.current.slice(0, 10).forEach((airport) => {
+        if (!Number.isFinite(airport.lat) || !Number.isFinite(airport.lon)) return
+        L.marker([airport.lat, airport.lon], {
+          pane: "discoverAirports",
+          icon: airportIcon(L, airport),
+          keyboard: false,
+          riseOnHover: true,
+          riseOffset: 750,
+        })
+          .bindTooltip(airportTooltip(airport), {
+            direction: "top",
+            offset: [0, -10],
+            opacity: 0.96,
+            sticky: true,
+            className: "discover-airport-tooltip-shell",
+          })
+          .bindPopup(airportPopup(airport), { className: "discover-airport-popup-shell" })
+          .addTo(airportLayer)
+      })
+    }
     setRenderedCount(markerAircraft.length)
   }
 
@@ -196,6 +270,9 @@ export function AviationMap({ aircraft, selectedAircraft, onSelectAircraft, onBo
       map.createPane("discoverAircraft")
       const aircraftPane = map.getPane("discoverAircraft")
       if (aircraftPane) aircraftPane.style.zIndex = "430"
+      map.createPane("discoverAirports")
+      const airportsPane = map.getPane("discoverAirports")
+      if (airportsPane) airportsPane.style.zIndex = "450"
       L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
         attribution: "&copy; OpenStreetMap &copy; CARTO",
         subdomains: "abcd",
@@ -204,6 +281,7 @@ export function AviationMap({ aircraft, selectedAircraft, onSelectAircraft, onBo
       L.control.zoom({ position: "bottomright" }).addTo(map)
       densityLayerRef.current = L.layerGroup().addTo(map)
       aircraftLayerRef.current = L.layerGroup().addTo(map)
+      airportLayerRef.current = L.layerGroup().addTo(map)
       mapRef.current = map
       const reportBounds = () => {
         const visible = map.getBounds()

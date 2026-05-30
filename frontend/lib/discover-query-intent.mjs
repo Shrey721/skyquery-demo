@@ -1,12 +1,15 @@
 const WEATHER_TERMS = /\b(weather|temperature|wind|rain|cloud|visibility|aviation weather|weather risk|risk)\b/i
 const FLIGHT_TERMS = /\b(flights?|aircraft|planes?|airspace|traffic)\b/i
 const IMPACT_TERMS = /\b(affected|storm|severe weather|bad weather|rain|heavy rain|high wind|strong wind|poor visibility|low visibility|weather affected|affected by weather|aviation risk)\b/i
+const AIRPORT_TERMS = /\b(airports?|nearest airport|nearby airports|major airports)\b/i
 
 export function parseDiscoverQuery(query) {
   const text = query.trim().toLowerCase()
   const asksImpact = IMPACT_TERMS.test(text)
+  const asksSelectedAircraftAirports = /\bselected aircraft\b/.test(text) && AIRPORT_TERMS.test(text)
   const mentionsFlights = FLIGHT_TERMS.test(text)
   const mentionsWeather = WEATHER_TERMS.test(text)
+  const mentionsAirports = AIRPORT_TERMS.test(text)
   const requestedMetric = /\btemperature\b/.test(text)
     ? "temperature"
     : /\bvisibility\b/.test(text)
@@ -31,10 +34,15 @@ export function parseDiscoverQuery(query) {
         : /\bbad weather\b|\bweather affected\b|\baffected by weather\b|\baviation risk\b|\brisk\b/.test(text)
           ? "general_weather"
           : null
+  const fetchFlights = asksSelectedAircraftAirports ? false : mentionsAirports ? mentionsFlights : true
+  const fetchWeather = mentionsAirports ? (mentionsWeather || asksImpact) : true
 
   return {
-    fetchFlights: true,
-    fetchWeather: true,
+    fetchFlights,
+    fetchWeather,
+    fetchAirports: mentionsAirports,
+    airportMode: mentionsAirports,
+    selectedAircraftAirportMode: asksSelectedAircraftAirports,
     impactMode: Boolean(impactType),
     impactType,
     requestedMetric,

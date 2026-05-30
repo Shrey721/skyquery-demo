@@ -83,6 +83,55 @@
   top: -3px;
   width: 13px;
 }
+.discover-airport-marker {
+  align-items: center;
+  background: rgba(8, 47, 73, 0.72);
+  border: 1px solid rgba(34, 211, 238, 0.5);
+  border-radius: 9999px;
+  box-shadow: 0 0 0 2px rgba(34, 211, 238, 0.08), 0 0 12px rgba(20, 184, 166, 0.22);
+  display: flex;
+  height: 28px;
+  justify-content: center;
+  position: relative;
+  width: 28px;
+}
+.discover-airport-marker svg {
+  display: block;
+  height: 22px;
+  width: 22px;
+}
+.discover-airport-marker circle {
+  fill: rgba(20, 184, 166, 0.16);
+  stroke: rgba(103, 232, 249, 0.82);
+  stroke-width: 1.4;
+}
+.discover-airport-marker path {
+  fill: none;
+  stroke: #a7f3d0;
+  stroke-linecap: round;
+  stroke-width: 1.8;
+}
+.discover-airport-tooltip {
+  color: #0f172a;
+  display: grid;
+  gap: 2px;
+  font-size: 11px;
+}
+.discover-airport-tooltip strong {
+  color: #047857;
+  font-size: 12px;
+}
+.discover-airport-popup {
+  color: #0f172a;
+  display: grid;
+  gap: 2px;
+  font-size: 12px;
+  min-width: 180px;
+}
+.discover-airport-popup strong {
+  color: #047857;
+  font-size: 13px;
+}
 .discover-density-halo {
   filter: blur(12px);
 }

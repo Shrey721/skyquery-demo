@@ -1,6 +1,6 @@
 "use client"
 
-import { Activity, Plane, Search } from "lucide-react"
+import { Activity, MapPin, Plane, Search } from "lucide-react"
 
 interface DiscoverFiltersProps {
   search: string
@@ -8,10 +8,12 @@ interface DiscoverFiltersProps {
   onSearchSubmit?: () => void
   showOnGround: boolean
   onToggleOnGround: () => void
+  showAirports?: boolean
+  onToggleAirports?: () => void
   weatherConnected?: boolean
 }
 
-export function DiscoverFilters({ search, onSearchChange, onSearchSubmit, showOnGround, onToggleOnGround, weatherConnected = false }: DiscoverFiltersProps) {
+export function DiscoverFilters({ search, onSearchChange, onSearchSubmit, showOnGround, onToggleOnGround, showAirports = false, onToggleAirports, weatherConnected = false }: DiscoverFiltersProps) {
   return (
     <div className="flex flex-wrap items-center gap-3 border-b border-border/30 bg-background/70 px-4 py-3 backdrop-blur-lg">
       <form
@@ -36,6 +38,14 @@ export function DiscoverFilters({ search, onSearchChange, onSearchSubmit, showOn
         <Activity className="h-3.5 w-3.5" /> Congestion
       </span>
       <button
+        type="button"
+        onClick={onToggleAirports}
+        className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs transition ${showAirports ? "border-primary/30 bg-primary/10 text-primary" : "border-border/40 bg-secondary/30 text-muted-foreground"}`}
+      >
+        <MapPin className="h-3.5 w-3.5" /> Airports
+      </button>
+      <button
+        type="button"
         onClick={onToggleOnGround}
         className={`rounded-lg border px-3 py-2 text-xs transition ${showOnGround ? "border-primary/30 bg-primary/10 text-primary" : "border-border/40 bg-secondary/30 text-muted-foreground"}`}
       >

@@ -47,6 +47,8 @@ export function IntelligencePanel({
   nearbyAirports,
   nearbyAirportsContext,
   nearbyAirportsError,
+  nearbyAirportsLabel,
+  nearbyAirportsSource,
   onRefreshWeather,
 }: {
   aircraft: LiveAircraft[]
@@ -69,11 +71,14 @@ export function IntelligencePanel({
     honestyLabel: string
   } | null
   nearbyAirports?: NearbyAirport[]
-  nearbyAirportsContext?: "selected_aircraft" | "search_area" | null
+  nearbyAirportsContext?: "selected_aircraft" | "search_area" | "current_view" | null
   nearbyAirportsError?: string | null
+  nearbyAirportsLabel?: string | null
+  nearbyAirportsSource?: string | null
   onRefreshWeather?: () => void
 }) {
   const [detailsOpen, setDetailsOpen] = useState(false)
+  const [airportsOpen, setAirportsOpen] = useState(false)
   const airborne = aircraft.filter((flight) => !flight.on_ground)
   const altitudes = airborne.flatMap((flight) => flight.altitude_ft == null ? [] : [flight.altitude_ft])
   const speeds = airborne.flatMap((flight) => flight.speed_kts == null ? [] : [flight.speed_kts])
@@ -207,19 +212,34 @@ export function IntelligencePanel({
         ) : <p className="rounded-xl border border-border/40 bg-secondary/20 p-3 text-xs text-muted-foreground">Select an aircraft marker for live details.</p>}
       </section>
       <section className="mb-5 space-y-3">
-        <h2 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider"><MapPin className="h-4 w-4 text-primary" /> Nearby Airports</h2>
-        <p className="text-[11px] text-muted-foreground">
-          {nearbyAirportsContext === "selected_aircraft" ? "Nearest airports to selected aircraft" : "Nearby airports for current area"}
-        </p>
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider"><MapPin className="h-4 w-4 text-primary" /> Nearby Airports</h2>
+          <button
+            onClick={() => setAirportsOpen((open) => !open)}
+            className="inline-flex items-center gap-1 rounded-md border border-border/40 bg-secondary/30 px-2 py-1 text-[11px] text-muted-foreground transition hover:text-foreground"
+          >
+            {airportsOpen ? "Show 5" : "Show 10"}
+            <ChevronDown className={`h-3.5 w-3.5 transition ${airportsOpen ? "rotate-180" : ""}`} />
+          </button>
+        </div>
+        <p className="text-[11px] text-muted-foreground">{airportContextLabel(nearbyAirportsContext, nearbyAirportsLabel)}</p>
+        {nearbyAirportsSource && <p className="text-[11px] text-muted-foreground">Source: {nearbyAirportsSource}</p>}
         {nearbyAirportsError ? (
           <p className="rounded-lg border border-border/30 bg-secondary/20 p-2 text-xs text-muted-foreground">Nearby airport data unavailable.</p>
         ) : nearbyAirports && nearbyAirports.length > 0 ? (
-          nearbyAirports.slice(0, 5).map((airport) => (
-            <div key={`${airport.ident}-${airport.distanceNm}`} className="rounded-lg border border-border/30 bg-secondary/20 p-2 text-xs">
-              <span className="font-semibold text-primary">{airport.code}</span> <span className="text-muted-foreground">{airport.name}</span>
-              <span className="float-right text-muted-foreground">{Math.round(airport.distanceNm)} nm</span>
-            </div>
-          ))
+          <div className={`${airportsOpen ? "max-h-72 overflow-y-auto pr-1" : ""} space-y-2`}>
+            {nearbyAirports.slice(0, airportsOpen ? 10 : 5).map((airport) => (
+              <div key={`${airport.ident}-${airport.distanceNm}`} className="rounded-lg border border-border/30 bg-secondary/20 p-2 text-xs">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="font-semibold text-primary">{airport.code}</p>
+                    <p className="text-muted-foreground">{airport.name}</p>
+                  </div>
+                  <span className="shrink-0 text-muted-foreground">{Math.round(airport.distanceNm)} nm</span>
+                </div>
+              </div>
+            ))}
+          </div>
         ) : (
           <p className="rounded-lg border border-border/30 bg-secondary/20 p-2 text-xs text-muted-foreground">Nearby airport data unavailable.</p>
         )}
@@ -241,4 +261,11 @@ function Metric({ label, value }: { label: string; value: string }) {
 
 function Detail({ label, value }: { label: string; value: string }) {
   return <div className="flex justify-between gap-2 text-muted-foreground"><span>{label}</span><span className="text-right text-foreground">{value}</span></div>
+}
+
+function airportContextLabel(context?: "selected_aircraft" | "search_area" | "current_view" | null, label?: string | null) {
+  if (context === "selected_aircraft") return "Nearest airports to selected aircraft"
+  if (context === "current_view") return "Airports in current view"
+  if (label) return `Nearby airports for ${label}`
+  return "Nearby airports for current area"
 }

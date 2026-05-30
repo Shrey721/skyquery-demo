@@ -156,3 +156,55 @@ def nearby_airports(lat: float, lon: float, limit: int = 5) -> dict[str, Any]:
         ],
         "source": AIRPORT_DATASET_SOURCE,
     }
+
+
+def airports_in_bounds(lamin: float, lomin: float, lamax: float, lomax: float, limit: int = 100) -> dict[str, Any]:
+    clamped_limit = max(1, min(limit, 100))
+    south = min(lamin, lamax)
+    north = max(lamin, lamax)
+    west = lomin
+    east = lomax
+    center_lat = (south + north) / 2
+    if west <= east:
+        center_lon = (west + east) / 2
+
+        def in_longitude(lon: float) -> bool:
+            return west <= lon <= east
+    else:
+        center_lon = ((west + east + 360) / 2 + 180) % 360 - 180
+
+        def in_longitude(lon: float) -> bool:
+            return lon >= west or lon <= east
+
+    ranked = sorted(
+        (
+            (
+                distance_nm(center_lat, center_lon, airport.lat, airport.lon),
+                TYPE_PRIORITY.get(airport.type, 99),
+                airport.name,
+                airport,
+            )
+            for airport in load_airports()
+            if south <= airport.lat <= north and in_longitude(airport.lon)
+        ),
+        key=lambda item: (item[0], item[1], item[2]),
+    )[:clamped_limit]
+    return {
+        "airports": [
+            {
+                "code": _code_for(airport),
+                "iataCode": airport.iata_code or None,
+                "icaoCode": _icao_for(airport),
+                "ident": airport.ident,
+                "name": airport.name,
+                "city": airport.city,
+                "country": airport.country,
+                "type": airport.type,
+                "lat": airport.lat,
+                "lon": airport.lon,
+                "distanceNm": round(distance, 1),
+            }
+            for distance, _, _, airport in ranked
+        ],
+        "source": AIRPORT_DATASET_SOURCE,
+    }

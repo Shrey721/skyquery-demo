@@ -33,6 +33,16 @@ class AirportServiceTests(unittest.TestCase):
         excluded = airport_service.EXCLUDED_TYPES
         self.assertFalse(any(airport["type"] in excluded for airport in result["airports"]))
 
+    def test_airports_in_amsterdam_bounds_returns_ams(self):
+        result = airport_service.airports_in_bounds(51.8, 4.1, 52.7, 5.5, limit=10)
+        codes = [airport["code"] for airport in result["airports"]]
+        self.assertIn("AMS", codes)
+        self.assertLessEqual(len(result["airports"]), 10)
+
+    def test_airports_in_bounds_clamps_limit(self):
+        result = airport_service.airports_in_bounds(20, 70, 35, 90, limit=500)
+        self.assertLessEqual(len(result["airports"]), 100)
+
 
 if __name__ == "__main__":
     unittest.main()

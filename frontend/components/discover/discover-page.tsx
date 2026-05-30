@@ -13,7 +13,7 @@ import { fetchWeather, regionFromBounds, regionFromSearch, type WeatherIntellige
 import { isAllowedWeatherFetchReason } from "@/lib/weather-refresh-policy.mjs"
 import { boundsAroundLocation, resolveLocationQuery } from "@/lib/location-search.mjs"
 import { buildWeatherImpactAssessment, parseDiscoverQuery, requestedWeatherMetricSummary, shouldMarkFlightsImpacted, weatherImpactSummary } from "@/lib/discover-query-intent.mjs"
-import { fetchNearbyAirports, type NearbyAirport } from "@/lib/nearby-airports-api"
+import { fetchAirportsInBounds, fetchNearbyAirports, type NearbyAirport } from "@/lib/nearby-airports-api"
 
 const AviationMap = dynamic(() => import("./aviation-map").then((module) => module.AviationMap), { ssr: false })
 
@@ -34,10 +34,13 @@ export function DiscoverPage() {
   const [focusLocation, setFocusLocation] = useState<{ latitude: number; longitude: number; zoom?: number; nonce: number } | null>(null)
   const [submittedSearchRegion, setSubmittedSearchRegion] = useState<WeatherRegion | null>(null)
   const [nearbyAirports, setNearbyAirports] = useState<NearbyAirport[]>([])
-  const [nearbyAirportsContext, setNearbyAirportsContext] = useState<"selected_aircraft" | "search_area" | null>(null)
+  const [nearbyAirportsContext, setNearbyAirportsContext] = useState<"selected_aircraft" | "search_area" | "current_view" | null>(null)
   const [nearbyAirportsError, setNearbyAirportsError] = useState<string | null>(null)
+  const [nearbyAirportsLabel, setNearbyAirportsLabel] = useState<string | null>(null)
+  const [nearbyAirportsSource, setNearbyAirportsSource] = useState<string | null>(null)
   const [search, setSearch] = useState("")
   const [showOnGround, setShowOnGround] = useState(false)
+  const [showAirports, setShowAirports] = useState(false)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const hasLoadedInitialBoundsRef = useRef(false)
   const requestIdRef = useRef(0)
@@ -50,15 +53,35 @@ export function DiscoverPage() {
     latitude: number,
     longitude: number,
     context: "selected_aircraft" | "search_area",
+    label?: string | null,
   ) => {
     const requestId = airportsRequestIdRef.current + 1
     airportsRequestIdRef.current = requestId
     setNearbyAirportsContext(context)
+    setNearbyAirportsLabel(context === "search_area" ? label ?? null : null)
     setNearbyAirportsError(null)
     try {
-      const response = await fetchNearbyAirports(latitude, longitude, 5)
+      const response = await fetchNearbyAirports(latitude, longitude, 10)
       if (requestId !== airportsRequestIdRef.current) return
       setNearbyAirports(response.airports)
+      setNearbyAirportsSource(response.source)
+    } catch {
+      if (requestId !== airportsRequestIdRef.current) return
+      setNearbyAirportsError("Nearby airport data unavailable.")
+    }
+  }, [])
+
+  const loadAirportsInCurrentView = useCallback(async (visibleBounds: MapBounds) => {
+    const requestId = airportsRequestIdRef.current + 1
+    airportsRequestIdRef.current = requestId
+    setNearbyAirportsContext("current_view")
+    setNearbyAirportsLabel(null)
+    setNearbyAirportsError(null)
+    try {
+      const response = await fetchAirportsInBounds(visibleBounds, 100)
+      if (requestId !== airportsRequestIdRef.current) return
+      setNearbyAirports(response.airports)
+      setNearbyAirportsSource(response.source)
     } catch {
       if (requestId !== airportsRequestIdRef.current) return
       setNearbyAirportsError("Nearby airport data unavailable.")
@@ -134,6 +157,25 @@ export function DiscoverPage() {
     async function runSearch() {
       try {
         const intent = parseDiscoverQuery(search)
+        if (intent.selectedAircraftAirportMode) {
+          setShowAirports(true)
+          if (!selected) {
+            setError("Select an aircraft marker before asking for airports around selected aircraft.")
+            return
+          }
+          setError(null)
+          setWeatherSummary(null)
+          setWeatherImpactAssessment(null)
+          focusNonceRef.current += 1
+          setFocusLocation({
+            latitude: selected.latitude,
+            longitude: selected.longitude,
+            zoom: 9,
+            nonce: focusNonceRef.current,
+          })
+          loadNearbyAirports(selected.latitude, selected.longitude, "selected_aircraft")
+          return
+        }
         const location = await resolveLocationQuery(search)
         if (!location) {
           setError("Could not resolve this location. Try a city, airport code, or country.")
@@ -159,10 +201,20 @@ export function DiscoverPage() {
         setError(null)
         setWeatherSummary(null)
         setWeatherImpactAssessment(null)
-        loadNearbyAirports(location.latitude, location.longitude, "search_area")
+        if (intent.fetchAirports) setShowAirports(true)
+        const airportPromise = intent.fetchAirports || showAirports
+          ? loadNearbyAirports(location.latitude, location.longitude, "search_area", location.label)
+          : Promise.resolve(null)
+        const flightPromise = intent.fetchFlights
+          ? loadFlights(searchBounds, { forceRefresh: true, reason: "search_submit" })
+          : Promise.resolve(null)
+        const weatherPromise = intent.fetchWeather
+          ? fetchWeatherForLocation("search_submit", region)
+          : Promise.resolve(null)
         const [flightResponse, weatherResponse] = await Promise.all([
-          loadFlights(searchBounds, { forceRefresh: true, reason: "search_submit" }),
-          fetchWeatherForLocation("search_submit", region),
+          flightPromise,
+          weatherPromise,
+          airportPromise,
         ])
         if (flightResponse && weatherResponse && intent.impactMode) {
           const impacted = shouldMarkFlightsImpacted(intent, weatherResponse)
@@ -182,7 +234,23 @@ export function DiscoverPage() {
       }
     }
     runSearch()
-  }, [fetchWeatherForLocation, loadFlights, search])
+  }, [fetchWeatherForLocation, loadFlights, loadNearbyAirports, search, selected, showAirports])
+
+  const toggleAirports = useCallback(() => {
+    setShowAirports((enabled) => {
+      const next = !enabled
+      if (next) {
+        if (selected) {
+          loadNearbyAirports(selected.latitude, selected.longitude, "selected_aircraft")
+        } else if (submittedSearchRegion) {
+          loadNearbyAirports(submittedSearchRegion.latitude, submittedSearchRegion.longitude, "search_area", submittedSearchRegion.label)
+        } else if (bounds) {
+          loadAirportsInCurrentView(bounds)
+        }
+      }
+      return next
+    })
+  }, [bounds, loadAirportsInCurrentView, loadNearbyAirports, selected, submittedSearchRegion])
 
   const handleBoundsChange = useCallback((visibleBounds: MapBounds) => {
     setBounds(visibleBounds)
@@ -238,10 +306,10 @@ export function DiscoverPage() {
         </nav>
         <ThemeToggle />
       </header>
-      <DiscoverFilters search={search} onSearchChange={handleSearchChange} onSearchSubmit={submitSearch} showOnGround={showOnGround} onToggleOnGround={() => setShowOnGround((value) => !value)} weatherConnected={Boolean(weather) && !weatherError} />
+      <DiscoverFilters search={search} onSearchChange={handleSearchChange} onSearchSubmit={submitSearch} showOnGround={showOnGround} onToggleOnGround={() => setShowOnGround((value) => !value)} showAirports={showAirports} onToggleAirports={toggleAirports} weatherConnected={Boolean(weather) && !weatherError} />
       <main className="flex min-h-0 flex-1 flex-col lg:flex-row">
         <div className="relative min-h-[420px] flex-1">
-          <AviationMap aircraft={filteredAircraft} selectedAircraft={selected} onSelectAircraft={setSelected} onBoundsChange={handleBoundsChange} focusLocation={focusLocation} />
+          <AviationMap aircraft={filteredAircraft} selectedAircraft={selected} onSelectAircraft={setSelected} onBoundsChange={handleBoundsChange} focusLocation={focusLocation} airports={nearbyAirports} showAirports={showAirports} />
           <div className="absolute left-4 top-4 z-[500] rounded-xl border border-border/40 bg-card/90 px-3 py-2 text-xs shadow-xl backdrop-blur">
             <div className="flex items-center gap-2 text-primary"><span className="h-2 w-2 animate-pulse rounded-full bg-primary" /> {dataStatus === "demo" ? "SAMPLE AIRSPACE" : "LIVE OPEN SKY"}</div>
             <p className="mt-1 text-muted-foreground">{loading ? "Loading live aircraft..." : `${filteredAircraft.length} aircraft in current view`}</p>
@@ -273,6 +341,8 @@ export function DiscoverPage() {
           nearbyAirports={nearbyAirports}
           nearbyAirportsContext={nearbyAirportsContext}
           nearbyAirportsError={nearbyAirportsError}
+          nearbyAirportsLabel={nearbyAirportsLabel}
+          nearbyAirportsSource={nearbyAirportsSource}
           onRefreshWeather={refreshWeather}
         />
       </main>
