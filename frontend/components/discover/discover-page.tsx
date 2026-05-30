@@ -14,6 +14,7 @@ import { isAllowedWeatherFetchReason } from "@/lib/weather-refresh-policy.mjs"
 import { boundsAroundLocation, resolveLocationQuery } from "@/lib/location-search.mjs"
 import { buildWeatherImpactAssessment, parseDiscoverQuery, requestedWeatherMetricSummary, shouldMarkFlightsImpacted, weatherImpactSummary } from "@/lib/discover-query-intent.mjs"
 import { fetchAirportsInBounds, fetchNearbyAirports, type NearbyAirport } from "@/lib/nearby-airports-api"
+import { fetchDiscoverEnterprise, type DiscoverEnterpriseResponse } from "@/lib/discover-enterprise-api"
 
 const AviationMap = dynamic(() => import("./aviation-map").then((module) => module.AviationMap), { ssr: false })
 
@@ -41,6 +42,8 @@ export function DiscoverPage() {
   const [search, setSearch] = useState("")
   const [showOnGround, setShowOnGround] = useState(false)
   const [showAirports, setShowAirports] = useState(false)
+  const [enterprise, setEnterprise] = useState<DiscoverEnterpriseResponse | null>(null)
+  const [enterpriseLoading, setEnterpriseLoading] = useState(false)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const hasLoadedInitialBoundsRef = useRef(false)
   const requestIdRef = useRef(0)
@@ -48,6 +51,7 @@ export function DiscoverPage() {
   const weatherRef = useRef<WeatherIntelligence | null>(null)
   const focusNonceRef = useRef(0)
   const airportsRequestIdRef = useRef(0)
+  const enterpriseRequestIdRef = useRef(0)
 
   const loadNearbyAirports = useCallback(async (
     latitude: number,
@@ -65,9 +69,11 @@ export function DiscoverPage() {
       if (requestId !== airportsRequestIdRef.current) return
       setNearbyAirports(response.airports)
       setNearbyAirportsSource(response.source)
+      return response
     } catch {
       if (requestId !== airportsRequestIdRef.current) return
       setNearbyAirportsError("Nearby airport data unavailable.")
+      return null
     }
   }, [])
 
@@ -157,6 +163,10 @@ export function DiscoverPage() {
     async function runSearch() {
       try {
         const intent = parseDiscoverQuery(search)
+        const enterpriseRequestId = enterpriseRequestIdRef.current + 1
+        enterpriseRequestIdRef.current = enterpriseRequestId
+        setEnterprise(null)
+        setEnterpriseLoading(false)
         if (intent.selectedAircraftAirportMode) {
           setShowAirports(true)
           if (!selected) {
@@ -211,11 +221,31 @@ export function DiscoverPage() {
         const weatherPromise = intent.fetchWeather
           ? fetchWeatherForLocation("search_submit", region)
           : Promise.resolve(null)
-        const [flightResponse, weatherResponse] = await Promise.all([
+        if (intent.queryPlan.needsTrino) setEnterpriseLoading(true)
+        const [flightResponse, weatherResponse, airportResponse] = await Promise.all([
           flightPromise,
           weatherPromise,
           airportPromise,
         ])
+        if (intent.queryPlan.needsTrino) {
+          try {
+            const enterpriseResponse = await fetchDiscoverEnterprise(search, location.label, airportResponse?.airports ?? [])
+            if (enterpriseRequestId !== enterpriseRequestIdRef.current) return
+            setEnterprise(enterpriseResponse)
+          } catch {
+            if (enterpriseRequestId !== enterpriseRequestIdRef.current) return
+            setEnterprise({
+              queryPlan: intent.queryPlan,
+              available: false,
+              message: "Enterprise data is unavailable. Live public feeds are still available, but delay/performance metrics require Trino.",
+              sourceTables: [],
+              rows: [],
+              matchedAirportsCount: 0,
+            })
+          } finally {
+            if (enterpriseRequestId === enterpriseRequestIdRef.current) setEnterpriseLoading(false)
+          }
+        }
         if (flightResponse && weatherResponse && intent.impactMode) {
           const impacted = shouldMarkFlightsImpacted(intent, weatherResponse)
           const markedAircraft = flightResponse.aircraft.map((flight) => ({ ...flight, weather_impacted: impacted }))
@@ -268,6 +298,7 @@ export function DiscoverPage() {
     requestIdRef.current += 1
     weatherRequestIdRef.current += 1
     airportsRequestIdRef.current += 1
+    enterpriseRequestIdRef.current += 1
     if (debounceRef.current) clearTimeout(debounceRef.current)
   }, [])
 
@@ -344,6 +375,8 @@ export function DiscoverPage() {
           nearbyAirportsLabel={nearbyAirportsLabel}
           nearbyAirportsSource={nearbyAirportsSource}
           onRefreshWeather={refreshWeather}
+          enterprise={enterprise}
+          enterpriseLoading={enterpriseLoading}
         />
       </main>
     </div>

@@ -2,6 +2,7 @@ const WEATHER_TERMS = /\b(weather|temperature|wind|rain|cloud|visibility|aviatio
 const FLIGHT_TERMS = /\b(flights?|aircraft|planes?|airspace|traffic)\b/i
 const IMPACT_TERMS = /\b(affected|storm|severe weather|bad weather|rain|heavy rain|high wind|strong wind|poor visibility|low visibility|weather affected|affected by weather|aviation risk)\b/i
 const AIRPORT_TERMS = /\b(airports?|nearest airport|nearby airports|major airports)\b/i
+const ENTERPRISE_TERMS = /\b(delay|delayed|on[- ]?time|performance|cancellation|cancellations|cancelled|operations|operational|historical|enterprise|throughput|airport stats|airport statistics|kpi|congestion|risk from enterprise)\b/i
 
 export function parseDiscoverQuery(query) {
   const text = query.trim().toLowerCase()
@@ -10,6 +11,7 @@ export function parseDiscoverQuery(query) {
   const mentionsFlights = FLIGHT_TERMS.test(text)
   const mentionsWeather = WEATHER_TERMS.test(text)
   const mentionsAirports = AIRPORT_TERMS.test(text)
+  const needsTrino = ENTERPRISE_TERMS.test(text)
   const requestedMetric = /\btemperature\b/.test(text)
     ? "temperature"
     : /\bvisibility\b/.test(text)
@@ -34,19 +36,41 @@ export function parseDiscoverQuery(query) {
         : /\bbad weather\b|\bweather affected\b|\baffected by weather\b|\baviation risk\b|\brisk\b/.test(text)
           ? "general_weather"
           : null
-  const fetchFlights = asksSelectedAircraftAirports ? false : mentionsAirports ? mentionsFlights : true
-  const fetchWeather = mentionsAirports ? (mentionsWeather || asksImpact) : true
+  const fetchFlights = needsTrino ? true : asksSelectedAircraftAirports ? false : mentionsAirports ? mentionsFlights : true
+  const fetchWeather = needsTrino ? true : mentionsAirports ? (mentionsWeather || asksImpact) : true
+  const fetchAirports = mentionsAirports || needsTrino
+  const primarySource = needsTrino
+    ? "trino"
+    : mentionsWeather
+      ? "openmeteo"
+      : mentionsAirports
+        ? "airports_csv"
+        : "opensky"
+  const contextSources = [
+    fetchFlights && primarySource !== "opensky" ? "opensky" : null,
+    fetchWeather && primarySource !== "openmeteo" ? "openmeteo" : null,
+    fetchAirports && primarySource !== "airports_csv" ? "airports_csv" : null,
+  ].filter(Boolean)
 
   return {
     fetchFlights,
     fetchWeather,
-    fetchAirports: mentionsAirports,
-    airportMode: mentionsAirports,
+    fetchAirports,
+    airportMode: fetchAirports,
     selectedAircraftAirportMode: asksSelectedAircraftAirports,
     impactMode: Boolean(impactType),
     impactType,
     requestedMetric,
     isWeatherOnly: mentionsWeather && !mentionsFlights && !asksImpact,
+    queryPlan: {
+      intent: needsTrino ? (mentionsFlights || mentionsWeather || mentionsAirports ? "combined" : "enterprise") : mentionsWeather ? "weather" : mentionsAirports ? "airport" : "live_airspace",
+      primarySource,
+      contextSources,
+      needsTrino,
+      needsOpenSky: fetchFlights,
+      needsWeather: fetchWeather,
+      needsAirports: fetchAirports,
+    },
   }
 }
 

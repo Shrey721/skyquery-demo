@@ -119,6 +119,22 @@ assert.equal(normalFlightQuery.fetchFlights, true)
 assert.equal(normalFlightQuery.fetchWeather, true)
 assert.equal(buildWeatherImpactAssessment(normalFlightQuery, { operationalRisk: "High" }, 8), null)
 
+const enterpriseAtlanta = parseDiscoverQuery("show airport performance near Atlanta")
+assert.equal(enterpriseAtlanta.queryPlan.needsTrino, true)
+assert.equal(enterpriseAtlanta.queryPlan.primarySource, "trino")
+assert.equal(enterpriseAtlanta.fetchFlights, true)
+assert.equal(enterpriseAtlanta.fetchWeather, true)
+assert.equal(enterpriseAtlanta.fetchAirports, true)
+assert.equal(normalizeLocationQuery("show airport performance near Atlanta"), "atlanta")
+
+const enterpriseLive = parseDiscoverQuery("show live flights near high-delay airports around Delhi")
+assert.equal(enterpriseLive.queryPlan.primarySource, "trino")
+assert.equal(enterpriseLive.queryPlan.needsOpenSky, true)
+
+const enterpriseWeather = parseDiscoverQuery("show weather risk near airports with poor performance")
+assert.equal(enterpriseWeather.queryPlan.needsTrino, true)
+assert.equal(enterpriseWeather.queryPlan.needsWeather, true)
+
 const generalWeatherQuery = parseDiscoverQuery("show flights affected by weather near Dubai")
 assert.equal(generalWeatherQuery.impactType, "general_weather")
 assert.equal(buildWeatherImpactAssessment(generalWeatherQuery, { operationalRisk: "Medium" }, 3).impactedCount, 3)

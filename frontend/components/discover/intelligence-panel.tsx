@@ -6,6 +6,7 @@ import { Activity, ChevronDown, CloudRain, Database, MapPin, Plane, Radio, Refre
 import type { LiveAircraft, MapBounds } from "@/lib/public-flights-api"
 import type { WeatherIntelligence, WeatherRegion } from "@/lib/weather-api"
 import type { NearbyAirport } from "@/lib/nearby-airports-api"
+import type { DiscoverEnterpriseResponse } from "@/lib/discover-enterprise-api"
 
 function displayNumber(value: number | null, unit = "") {
   return value == null ? "Unavailable" : `${Math.round(value).toLocaleString()}${unit}`
@@ -50,6 +51,8 @@ export function IntelligencePanel({
   nearbyAirportsLabel,
   nearbyAirportsSource,
   onRefreshWeather,
+  enterprise,
+  enterpriseLoading = false,
 }: {
   aircraft: LiveAircraft[]
   selected: LiveAircraft | null
@@ -76,6 +79,8 @@ export function IntelligencePanel({
   nearbyAirportsLabel?: string | null
   nearbyAirportsSource?: string | null
   onRefreshWeather?: () => void
+  enterprise?: DiscoverEnterpriseResponse | null
+  enterpriseLoading?: boolean
 }) {
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [airportsOpen, setAirportsOpen] = useState(false)
@@ -104,9 +109,38 @@ export function IntelligencePanel({
             <span>Open-Meteo</span>
             <span className={weather ? "text-emerald-400" : "text-muted-foreground"}>{weatherLoading ? "Connecting..." : weather ? "Connected" : "Unavailable"}</span>
           </div>
-          <div className="mt-2 flex justify-between text-muted-foreground"><span>Enterprise</span><span>Not connected</span></div>
+          <div className="mt-2 flex justify-between text-muted-foreground"><span>Enterprise</span><span className={enterprise?.available ? "text-emerald-400" : "text-muted-foreground"}>{enterpriseLoading ? "Connecting..." : enterprise?.available ? "Connected" : "Not queried"}</span></div>
         </div>
       </section>
+      {(enterpriseLoading || enterprise) && (
+        <section className="mb-5 space-y-3">
+          <h2 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider"><Database className="h-4 w-4 text-primary" /> Enterprise Intelligence</h2>
+          <div className="space-y-3 rounded-xl border border-border/40 bg-secondary/20 p-3 text-xs">
+            {enterpriseLoading ? (
+              <p className="text-muted-foreground">Loading selected Trino context...</p>
+            ) : (
+              <>
+                <Detail label="Primary Source" value="Trino" />
+                <Detail label="Interpretation" value={enterprise?.queryPlan.enterpriseIntent ?? enterprise?.queryPlan.intent ?? "enterprise"} />
+                <Detail label="Matched Airports" value={String(enterprise?.matchedAirportsCount ?? 0)} />
+                {enterprise?.message && <p className="rounded-lg bg-amber-500/10 px-3 py-2 text-amber-200">{enterprise.message}</p>}
+                {enterprise?.sourceTables.map((table) => <p key={table} className="break-all text-[11px] text-muted-foreground">Source: {table}</p>)}
+                {enterprise?.rows.slice(0, 5).map((row, index) => (
+                  <div key={`${row.airportCode}-${index}`} className="rounded-lg border border-border/30 bg-background/20 p-2">
+                    <div className="mb-1 flex items-center justify-between gap-2">
+                      <span className="font-semibold text-primary">{row.airportCode || "Airport"}</span>
+                      {row.risk && <span className={`rounded px-1.5 py-0.5 text-[10px] ${riskClass(row.risk)}`}>{row.risk}</span>}
+                    </div>
+                    {Object.entries(row.metrics).map(([label, value]) => <Detail key={label} label={metricLabel(label)} value={String(value)} />)}
+                  </div>
+                ))}
+                {enterprise?.honestyNote && <p className="text-[11px] text-muted-foreground">{enterprise.honestyNote}</p>}
+                <p className="text-[11px] text-muted-foreground">Data Sources Used: Enterprise: Trino; Live Flights: OpenSky; Weather: Open-Meteo; Airports: OurAirports local dataset.</p>
+              </>
+            )}
+          </div>
+        </section>
+      )}
       <section className="mb-5 space-y-3">
         <div className="flex items-center justify-between gap-3">
           <h2 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider"><CloudRain className="h-4 w-4 text-primary" /> Weather</h2>
@@ -249,7 +283,7 @@ export function IntelligencePanel({
         {["Show airports with high traffic in this view", "Summarize live airspace anomalies"].map((question) => (
           <Link key={question} href={`/?q=${encodeURIComponent(question)}`} className="block rounded-lg bg-secondary/30 p-2 text-xs text-muted-foreground hover:text-foreground">{question}</Link>
         ))}
-        <p className="flex items-center gap-1 text-[11px] text-muted-foreground"><Radio className="h-3 w-3" /> Enterprise source not connected. Weather from Open-Meteo.</p>
+        <p className="flex items-center gap-1 text-[11px] text-muted-foreground"><Radio className="h-3 w-3" /> Enterprise intelligence uses selected Trino context. Weather from Open-Meteo.</p>
       </section>
     </aside>
   )
@@ -261,6 +295,10 @@ function Metric({ label, value }: { label: string; value: string }) {
 
 function Detail({ label, value }: { label: string; value: string }) {
   return <div className="flex justify-between gap-2 text-muted-foreground"><span>{label}</span><span className="text-right text-foreground">{value}</span></div>
+}
+
+function metricLabel(metric: string) {
+  return metric.replace(/([A-Z])/g, " $1").replace(/^./, (value) => value.toUpperCase())
 }
 
 function airportContextLabel(context?: "selected_aircraft" | "search_area" | "current_view" | null, label?: string | null) {

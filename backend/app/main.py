@@ -5,6 +5,7 @@ from app.api.routes import connections, metadata, auth, history
 from app.api.routes.flights import router as flights_router
 from app.api.routes.weather import router as weather_router
 from app.api.routes.airports import router as airports_router
+from app.api.routes.discover import router as discover_router
 from app.models.connection import Base
 from app.models.user import User  # Import User to ensure tables are created
 from app.models.chat_history import ChatHistory  # Import ChatHistory to ensure tables are created
@@ -51,6 +52,8 @@ app.include_router(weather_router, prefix="/api", tags=["weather"])
 app.include_router(weather_router, prefix=f"{settings.API_V1_STR}", tags=["weather"])
 app.include_router(airports_router, prefix="/api", tags=["airports"])
 app.include_router(airports_router, prefix=f"{settings.API_V1_STR}", tags=["airports"])
+app.include_router(discover_router, prefix="/api", tags=["discover"])
+app.include_router(discover_router, prefix=f"{settings.API_V1_STR}", tags=["discover"])
 
 @app.get("/")
 def root():
