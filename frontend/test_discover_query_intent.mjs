@@ -7,6 +7,7 @@ import {
   shouldMarkFlightsImpacted,
   weatherImpactSummary,
 } from "./lib/discover-query-intent.mjs"
+import { hasExplicitLocationScope, semanticEnterpriseFilter } from "./lib/discover-query-intent.mjs"
 import { normalizeLocationQuery } from "./lib/location-search.mjs"
 
 const tempTokyo = parseDiscoverQuery("show temperature over Tokyo")
@@ -134,6 +135,17 @@ assert.equal(enterpriseLive.queryPlan.needsOpenSky, true)
 const enterpriseWeather = parseDiscoverQuery("show weather risk near airports with poor performance")
 assert.equal(enterpriseWeather.queryPlan.needsTrino, true)
 assert.equal(enterpriseWeather.queryPlan.needsWeather, true)
+assert.equal(semanticEnterpriseFilter("show flights near airports with poor performance"), "high_risk")
+assert.equal(semanticEnterpriseFilter("show weather impacted flights near high risk airports"), "high_risk")
+assert.equal(semanticEnterpriseFilter("show flights near airports with high delay"), "high_delay")
+assert.equal(semanticEnterpriseFilter("show flights near airports with low on-time"), "low_on_time")
+assert.equal(semanticEnterpriseFilter("show flights near airports with high cancellation"), "high_cancellation")
+assert.equal(semanticEnterpriseFilter("show airport performance near Atlanta"), null)
+assert.equal(parseDiscoverQuery("show weather impacted flights near high risk airports").enterpriseFirst, true)
+assert.equal(parseDiscoverQuery("show live flights near high-delay airports").enterpriseFirst, true)
+assert.equal(parseDiscoverQuery("show live flights near high-delay airports around Atlanta").enterpriseFirst, false)
+assert.equal(hasExplicitLocationScope("show live flights near high-delay airports around Atlanta"), true)
+assert.equal(hasExplicitLocationScope("show weather impacted flights near high risk airports"), false)
 
 const generalWeatherQuery = parseDiscoverQuery("show flights affected by weather near Dubai")
 assert.equal(generalWeatherQuery.impactType, "general_weather")

@@ -6,7 +6,7 @@ import { Activity, ChevronDown, CloudRain, Database, MapPin, Plane, Radio, Refre
 import type { LiveAircraft, MapBounds } from "@/lib/public-flights-api"
 import type { WeatherIntelligence, WeatherRegion } from "@/lib/weather-api"
 import type { NearbyAirport } from "@/lib/nearby-airports-api"
-import type { DiscoverEnterpriseResponse } from "@/lib/discover-enterprise-api"
+import type { DiscoverEnterpriseAirportSummary, DiscoverEnterpriseResponse } from "@/lib/discover-enterprise-api"
 
 function displayNumber(value: number | null, unit = "") {
   return value == null ? "Unavailable" : `${Math.round(value).toLocaleString()}${unit}`
@@ -125,15 +125,19 @@ export function IntelligencePanel({
                 <Detail label="Matched Airports" value={String(enterprise?.matchedAirportsCount ?? 0)} />
                 {enterprise?.message && <p className="rounded-lg bg-amber-500/10 px-3 py-2 text-amber-200">{enterprise.message}</p>}
                 {enterprise?.sourceTables.map((table) => <p key={table} className="break-all text-[11px] text-muted-foreground">Source: {table}</p>)}
-                {enterprise?.rows.slice(0, 5).map((row, index) => (
-                  <div key={`${row.airportCode}-${index}`} className="rounded-lg border border-border/30 bg-background/20 p-2">
-                    <div className="mb-1 flex items-center justify-between gap-2">
-                      <span className="font-semibold text-primary">{row.airportCode || "Airport"}</span>
-                      {row.risk && <span className={`rounded px-1.5 py-0.5 text-[10px] ${riskClass(row.risk)}`}>{row.risk}</span>}
-                    </div>
-                    {Object.entries(row.metrics).map(([label, value]) => <Detail key={label} label={metricLabel(label)} value={String(value)} />)}
+                {enterprise?.airportSummaries?.length ? (
+                  <div className="max-h-[720px] space-y-3 overflow-y-auto pr-1">
+                    {enterprise.airportSummaries.map((summary) => <EnterpriseAirportSummary key={summary.airportCode} summary={summary} />)}
                   </div>
-                ))}
+                ) : enterprise?.rows.slice(0, 5).map((row, index) => (
+                    <div key={`${row.airportCode}-${index}`} className="rounded-lg border border-border/30 bg-background/20 p-2">
+                      <div className="mb-1 flex items-center justify-between gap-2">
+                        <span className="font-semibold text-primary">{row.airportCode || "Airport"}</span>
+                        {row.risk && <span className={`rounded px-1.5 py-0.5 text-[10px] ${riskClass(row.risk)}`}>{row.risk}</span>}
+                      </div>
+                      {Object.entries(row.metrics).map(([label, value]) => <Detail key={label} label={metricLabel(label)} value={String(value)} />)}
+                    </div>
+                  ))}
                 {enterprise?.honestyNote && <p className="text-[11px] text-muted-foreground">{enterprise.honestyNote}</p>}
                 <p className="text-[11px] text-muted-foreground">Data Sources Used: Enterprise: Trino; Live Flights: OpenSky; Weather: Open-Meteo; Airports: OurAirports local dataset.</p>
               </>
@@ -295,6 +299,158 @@ function Metric({ label, value }: { label: string; value: string }) {
 
 function Detail({ label, value }: { label: string; value: string }) {
   return <div className="flex justify-between gap-2 text-muted-foreground"><span>{label}</span><span className="text-right text-foreground">{value}</span></div>
+}
+
+function EnterpriseAirportSummary({ summary }: { summary: DiscoverEnterpriseAirportSummary }) {
+  const [dailyOpen, setDailyOpen] = useState(false)
+  const flightTrend = dailyTrend(summary.dailyRecords, "flights")
+  const delayTrend = dailyTrend(summary.dailyRecords, "delayed")
+  return (
+    <div className="rounded-lg border border-border/40 bg-background/20 p-3">
+      <div className="flex items-start justify-between gap-2">
+        <span className="text-sm font-semibold text-primary">{summary.airportCode}</span>
+        <div className="flex flex-wrap justify-end gap-1 text-[10px]">
+          <span className={`rounded px-1.5 py-0.5 ${riskClass(summary.risk)}`}>{summary.risk} Risk</span>
+          <TrendBadge label="Traffic" trend={flightTrend} />
+          <TrendBadge label="Delays" trend={delayTrend} />
+        </div>
+      </div>
+      <div className="my-2 grid grid-cols-2 gap-1.5">
+        <KpiChip label="On-Time" value={formatPercent(summary.rates.onTimePercentage)} />
+        <KpiChip label="Delay Rate" value={formatPercent(summary.rates.delayRate)} />
+        <KpiChip label="Avg Dep Delay" value={formatMinutes(summary.averages.departureDelay)} />
+        <KpiChip label="Cancelled" value={formatMetric(summary.totals.cancelledFlights)} />
+      </div>
+      <div className="space-y-1">
+        <Detail label="Date Range" value={displayDateRange(summary.dateRange.start, summary.dateRange.end)} />
+        <Detail label="Records" value={`${summary.recordCount} day${summary.recordCount === 1 ? "" : "s"}`} />
+      </div>
+      <div className="my-2 border-t border-border/30" />
+      <div className="space-y-1">
+        <Detail label="Total Flights" value={formatMetric(summary.totals.totalFlights)} />
+        <Detail label="Delayed Flights" value={formatMetric(summary.totals.delayedFlights)} />
+        <Detail label="Delay Rate" value={formatPercent(summary.rates.delayRate)} />
+        <Detail label="Cancelled" value={formatMetric(summary.totals.cancelledFlights)} />
+        <Detail label="Cancellation Rate" value={formatPercent(summary.rates.cancellationRate)} />
+      </div>
+      <div className="my-2 border-t border-border/30" />
+      <div className="space-y-1">
+        <Detail label="Avg Departure Delay" value={formatMinutes(summary.averages.departureDelay)} />
+        <Detail label="Avg Arrival Delay" value={formatMinutes(summary.averages.arrivalDelay)} />
+        <Detail label="On-Time" value={formatPercent(summary.rates.onTimePercentage)} />
+        <Detail label="Weather Delays" value={formatMetric(summary.totals.weatherDelays)} />
+        <Detail label="Maintenance Delays" value={formatMetric(summary.totals.maintenanceDelays)} />
+      </div>
+      {summary.dailyRecords.length > 1 && (
+        <div className="mt-3 grid grid-cols-2 gap-1.5">
+          <SparklineCard label="Flights" values={summary.dailyRecords.map((record) => record.flights)} />
+          <SparklineCard label="Delayed" values={summary.dailyRecords.map((record) => record.delayed)} />
+        </div>
+      )}
+      <p className="mt-3 rounded-lg bg-primary/10 px-2 py-1.5 text-[11px] text-primary">{analystSummary(summary)}</p>
+      <button
+        onClick={() => setDailyOpen((open) => !open)}
+        className="mt-3 flex w-full items-center justify-between rounded-md border border-border/30 bg-secondary/20 px-2 py-1.5 text-[11px] text-muted-foreground transition hover:text-foreground"
+      >
+        Daily Records
+        <ChevronDown className={`h-3.5 w-3.5 transition ${dailyOpen ? "rotate-180" : ""}`} />
+      </button>
+      {dailyOpen && (
+        <div className="mt-2 max-h-72 overflow-auto rounded-lg border border-border/30">
+          <table className="min-w-[620px] text-[10px]">
+            <thead className="sticky top-0 bg-card text-muted-foreground">
+              <tr>{["Date", "Flights", "Delayed", "Cancelled", "Dep Delay", "Arr Delay", "On-Time %"].map((heading) => <th key={heading} className="px-2 py-1 text-left font-medium">{heading}</th>)}</tr>
+            </thead>
+            <tbody>
+              {summary.dailyRecords.map((record, index) => (
+                <tr key={`${record.date}-${index}`} className="border-t border-border/20">
+                  <td className="px-2 py-1">{formatDate(record.date)}</td>
+                  <td className="px-2 py-1">{formatMetric(record.flights)}</td>
+                  <td className="px-2 py-1">{formatMetric(record.delayed)}</td>
+                  <td className="px-2 py-1">{formatMetric(record.cancelled)}</td>
+                  <td className="px-2 py-1">{record.departureDelay.toFixed(1)}</td>
+                  <td className="px-2 py-1">{record.arrivalDelay.toFixed(1)}</td>
+                  <td className="px-2 py-1">{formatPercent(record.onTimePercentage)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
+type TrendDirection = "increasing" | "decreasing" | "stable"
+
+function KpiChip({ label, value }: { label: string; value: string }) {
+  return <div className="rounded-md border border-border/30 bg-secondary/20 px-2 py-1"><p className="text-[9px] uppercase tracking-wide text-muted-foreground">{label}</p><p className="text-[11px] font-semibold text-foreground">{value}</p></div>
+}
+
+function TrendBadge({ label, trend }: { label: string; trend: TrendDirection }) {
+  const arrow = trend === "increasing" ? "\u2191" : trend === "decreasing" ? "\u2193" : "\u2192"
+  return <span className="rounded bg-secondary/30 px-1.5 py-0.5 text-muted-foreground">{arrow} {label}</span>
+}
+
+function SparklineCard({ label, values }: { label: string; values: number[] }) {
+  const width = 92
+  const height = 22
+  const points = sparklinePoints(values, width, height)
+  return (
+    <div className="rounded-md border border-border/30 bg-secondary/20 px-2 py-1">
+      <p className="text-[9px] uppercase tracking-wide text-muted-foreground">{label} Trend</p>
+      <svg viewBox={`0 0 ${width} ${height}`} className="mt-1 h-5 w-full" aria-label={`${label} trend sparkline`}>
+        <polyline points={points} fill="none" stroke="currentColor" strokeWidth="2" className="text-primary" />
+      </svg>
+    </div>
+  )
+}
+
+function dailyTrend(records: DiscoverEnterpriseAirportSummary["dailyRecords"], key: "flights" | "delayed"): TrendDirection {
+  if (records.length < 2) return "stable"
+  const chronological = [...records].sort((left, right) => String(left.date ?? "").localeCompare(String(right.date ?? "")))
+  const first = chronological[0][key]
+  const last = chronological[chronological.length - 1][key]
+  return last > first ? "increasing" : last < first ? "decreasing" : "stable"
+}
+
+function sparklinePoints(values: number[], width: number, height: number) {
+  if (!values.length) return ""
+  const min = Math.min(...values)
+  const max = Math.max(...values)
+  const spread = max - min || 1
+  return values.map((value, index) => {
+    const x = values.length === 1 ? width / 2 : index / (values.length - 1) * width
+    const y = height - (value - min) / spread * height
+    return `${x.toFixed(1)},${y.toFixed(1)}`
+  }).join(" ")
+}
+
+function analystSummary(summary: DiscoverEnterpriseAirportSummary) {
+  return `${summary.airportCode} processed ${formatMetric(summary.totals.totalFlights)} flights across ${summary.recordCount} day${summary.recordCount === 1 ? "" : "s"}. ${formatPercent(summary.rates.delayRate)} were delayed with an average departure delay of ${formatMinutes(summary.averages.departureDelay)}. On-time performance is ${formatPercent(summary.rates.onTimePercentage)}.`
+}
+
+function formatMetric(value: number) {
+  return Number(value).toLocaleString()
+}
+
+function formatPercent(value: number | null) {
+  return value == null ? "Unavailable" : `${Number(value).toFixed(1)}%`
+}
+
+function formatMinutes(value: number | null) {
+  return value == null ? "Unavailable" : `${Number(value).toFixed(1)} min`
+}
+
+function formatDate(value: string | null) {
+  if (!value) return "Unavailable"
+  const date = new Date(`${value}T00:00:00`)
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString([], { month: "short", day: "numeric" })
+}
+
+function displayDateRange(start: string | null, end: string | null) {
+  if (!start && !end) return "Unavailable"
+  return start === end ? formatDate(start) : `${formatDate(start)} - ${formatDate(end)}`
 }
 
 function metricLabel(metric: string) {

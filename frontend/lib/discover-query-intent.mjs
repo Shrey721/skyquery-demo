@@ -1,8 +1,23 @@
 const WEATHER_TERMS = /\b(weather|temperature|wind|rain|cloud|visibility|aviation weather|weather risk|risk)\b/i
 const FLIGHT_TERMS = /\b(flights?|aircraft|planes?|airspace|traffic)\b/i
-const IMPACT_TERMS = /\b(affected|storm|severe weather|bad weather|rain|heavy rain|high wind|strong wind|poor visibility|low visibility|weather affected|affected by weather|aviation risk)\b/i
+const IMPACT_TERMS = /\b(affected|impacted|storm|severe weather|bad weather|rain|heavy rain|high wind|strong wind|poor visibility|low visibility|weather affected|weather impacted|affected by weather|aviation risk)\b/i
 const AIRPORT_TERMS = /\b(airports?|nearest airport|nearby airports|major airports)\b/i
-const ENTERPRISE_TERMS = /\b(delay|delayed|on[- ]?time|performance|cancellation|cancellations|cancelled|operations|operational|historical|enterprise|throughput|airport stats|airport statistics|kpi|congestion|risk from enterprise)\b/i
+const ENTERPRISE_TERMS = /\b(delay|delayed|on[- ]?time|performance|cancellation|cancellations|cancelled|operations|operational|historical|enterprise|throughput|airport stats|airport statistics|kpi|congestion|risk from enterprise|high risk airports?)\b/i
+
+export function semanticEnterpriseFilter(query) {
+  const text = query.trim().toLowerCase()
+  if (text.includes("high risk airport") || text.includes("poor performance")) return "high_risk"
+  if (text.includes("high delay") || text.includes("high-delay")) return "high_delay"
+  if (text.includes("low on-time") || text.includes("low on time")) return "low_on_time"
+  if (text.includes("high cancellation")) return "high_cancellation"
+  return null
+}
+
+export function hasExplicitLocationScope(query) {
+  const excluded = new Set(["airport", "airports", "high", "low", "poor", "risk", "delay", "delays", "performance", "cancellation"])
+  return [...query.matchAll(/\b(?:near|around|over|at|in|for)\s+([a-z]{2,})\b/gi)]
+    .some((match) => !excluded.has(match[1].toLowerCase()))
+}
 
 export function parseDiscoverQuery(query) {
   const text = query.trim().toLowerCase()
@@ -12,6 +27,8 @@ export function parseDiscoverQuery(query) {
   const mentionsWeather = WEATHER_TERMS.test(text)
   const mentionsAirports = AIRPORT_TERMS.test(text)
   const needsTrino = ENTERPRISE_TERMS.test(text)
+  const enterpriseFilter = semanticEnterpriseFilter(text)
+  const enterpriseFirst = Boolean(enterpriseFilter && !hasExplicitLocationScope(text))
   const requestedMetric = /\btemperature\b/.test(text)
     ? "temperature"
     : /\bvisibility\b/.test(text)
@@ -70,7 +87,11 @@ export function parseDiscoverQuery(query) {
       needsOpenSky: fetchFlights,
       needsWeather: fetchWeather,
       needsAirports: fetchAirports,
+      enterpriseFirst,
+      locationGeocodingSkippedReason: enterpriseFirst ? "enterprise_first_query_without_explicit_location" : null,
     },
+    semanticEnterpriseFilter: enterpriseFilter,
+    enterpriseFirst,
   }
 }
 

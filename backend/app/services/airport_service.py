@@ -64,6 +64,32 @@ def _icao_for(airport: Airport) -> str | None:
     return None
 
 
+def _airport_payload(airport: Airport, distance: float = 0) -> dict[str, Any]:
+    return {
+        "code": _code_for(airport),
+        "iataCode": airport.iata_code or None,
+        "icaoCode": _icao_for(airport),
+        "ident": airport.ident,
+        "name": airport.name,
+        "city": airport.city,
+        "country": airport.country,
+        "type": airport.type,
+        "lat": airport.lat,
+        "lon": airport.lon,
+        "distanceNm": round(distance, 1),
+    }
+
+
+def airports_by_codes(codes: list[str]) -> list[dict[str, Any]]:
+    wanted = {str(code or "").strip().upper() for code in codes if str(code or "").strip()}
+    matched = []
+    for airport in load_airports():
+        airport_codes = {airport.ident.upper(), airport.gps_code.upper(), airport.iata_code.upper(), airport.local_code.upper()}
+        if wanted.intersection(code for code in airport_codes if code):
+            matched.append(_airport_payload(airport))
+    return matched
+
+
 def distance_nm(lat_a: float, lon_a: float, lat_b: float, lon_b: float) -> float:
     radians = math.pi / 180
     d_lat = (lat_b - lat_a) * radians
@@ -138,22 +164,7 @@ def nearby_airports(lat: float, lon: float, limit: int = 5) -> dict[str, Any]:
         key=lambda item: (item[0], item[1], item[2]),
     )[:clamped_limit]
     return {
-        "airports": [
-            {
-                "code": _code_for(airport),
-                "iataCode": airport.iata_code or None,
-                "icaoCode": _icao_for(airport),
-                "ident": airport.ident,
-                "name": airport.name,
-                "city": airport.city,
-                "country": airport.country,
-                "type": airport.type,
-                "lat": airport.lat,
-                "lon": airport.lon,
-                "distanceNm": round(distance, 1),
-            }
-            for distance, _, _, airport in ranked
-        ],
+        "airports": [_airport_payload(airport, distance) for distance, _, _, airport in ranked],
         "source": AIRPORT_DATASET_SOURCE,
     }
 
@@ -190,21 +201,6 @@ def airports_in_bounds(lamin: float, lomin: float, lamax: float, lomax: float, l
         key=lambda item: (item[0], item[1], item[2]),
     )[:clamped_limit]
     return {
-        "airports": [
-            {
-                "code": _code_for(airport),
-                "iataCode": airport.iata_code or None,
-                "icaoCode": _icao_for(airport),
-                "ident": airport.ident,
-                "name": airport.name,
-                "city": airport.city,
-                "country": airport.country,
-                "type": airport.type,
-                "lat": airport.lat,
-                "lon": airport.lon,
-                "distanceNm": round(distance, 1),
-            }
-            for distance, _, _, airport in ranked
-        ],
+        "airports": [_airport_payload(airport, distance) for distance, _, _, airport in ranked],
         "source": AIRPORT_DATASET_SOURCE,
     }

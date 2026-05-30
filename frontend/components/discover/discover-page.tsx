@@ -14,7 +14,7 @@ import { isAllowedWeatherFetchReason } from "@/lib/weather-refresh-policy.mjs"
 import { boundsAroundLocation, resolveLocationQuery } from "@/lib/location-search.mjs"
 import { buildWeatherImpactAssessment, parseDiscoverQuery, requestedWeatherMetricSummary, shouldMarkFlightsImpacted, weatherImpactSummary } from "@/lib/discover-query-intent.mjs"
 import { fetchAirportsInBounds, fetchNearbyAirports, type NearbyAirport } from "@/lib/nearby-airports-api"
-import { fetchDiscoverEnterprise, type DiscoverEnterpriseResponse } from "@/lib/discover-enterprise-api"
+import { fetchDiscoverEnterprise, fetchDiscoverEnterpriseCandidates, type DiscoverEnterpriseResponse } from "@/lib/discover-enterprise-api"
 
 const AviationMap = dynamic(() => import("./aviation-map").then((module) => module.AviationMap), { ssr: false })
 
@@ -186,7 +186,46 @@ export function DiscoverPage() {
           loadNearbyAirports(selected.latitude, selected.longitude, "selected_aircraft")
           return
         }
-        const location = await resolveLocationQuery(search)
+        let enterpriseCandidates: DiscoverEnterpriseResponse | null = null
+        let location = null
+        if (intent.enterpriseFirst) {
+          setEnterpriseLoading(true)
+          try {
+            enterpriseCandidates = await fetchDiscoverEnterpriseCandidates(search)
+            if (enterpriseRequestId !== enterpriseRequestIdRef.current) return
+            setEnterprise(enterpriseCandidates)
+            const selectedAirport = enterpriseCandidates.selectedAirports?.[0]
+            if (!selectedAirport) {
+              setError(enterpriseCandidates.message || "No high-risk airports found in the selected enterprise data.")
+              return
+            }
+            location = {
+              label: `${selectedAirport.code} - ${selectedAirport.name}`,
+              name: selectedAirport.name,
+              country: selectedAirport.country,
+              latitude: selectedAirport.lat,
+              longitude: selectedAirport.lon,
+              source: "enterprise",
+            }
+          } catch {
+            if (enterpriseRequestId !== enterpriseRequestIdRef.current) return
+            const unavailable = {
+              queryPlan: intent.queryPlan,
+              available: false,
+              message: "Enterprise data is unavailable. This query requires Trino performance data.",
+              sourceTables: [],
+              rows: [],
+              matchedAirportsCount: 0,
+            }
+            setEnterprise(unavailable)
+            setError(unavailable.message)
+            return
+          } finally {
+            if (enterpriseRequestId === enterpriseRequestIdRef.current) setEnterpriseLoading(false)
+          }
+        } else {
+          location = await resolveLocationQuery(search)
+        }
         if (!location) {
           setError("Could not resolve this location. Try a city, airport code, or country.")
           return
@@ -221,13 +260,13 @@ export function DiscoverPage() {
         const weatherPromise = intent.fetchWeather
           ? fetchWeatherForLocation("search_submit", region)
           : Promise.resolve(null)
-        if (intent.queryPlan.needsTrino) setEnterpriseLoading(true)
+        if (intent.queryPlan.needsTrino && !enterpriseCandidates) setEnterpriseLoading(true)
         const [flightResponse, weatherResponse, airportResponse] = await Promise.all([
           flightPromise,
           weatherPromise,
           airportPromise,
         ])
-        if (intent.queryPlan.needsTrino) {
+        if (intent.queryPlan.needsTrino && !enterpriseCandidates) {
           try {
             const enterpriseResponse = await fetchDiscoverEnterprise(search, location.label, airportResponse?.airports ?? [])
             if (enterpriseRequestId !== enterpriseRequestIdRef.current) return

@@ -10,7 +10,7 @@ WEATHER_TERMS = re.compile(r"\b(weather|temperature|rain|wind|storm|visibility|w
 AIRPORT_TERMS = re.compile(r"\b(airports?|nearest airport|nearby airports?|airport layer)\b", re.I)
 ENTERPRISE_TERMS = re.compile(
     r"\b(delay|delayed|on[- ]?time|performance|cancellations?|cancelled|operations?|operational|"
-    r"historical|enterprise|throughput|airport stats?|airport statistics|kpis?|congestion|risk from enterprise)\b",
+    r"historical|enterprise|throughput|airport stats?|airport statistics|kpis?|congestion|risk from enterprise|high risk airports?)\b",
     re.I,
 )
 
@@ -23,6 +23,26 @@ ENTERPRISE_INTENTS = (
     ("operations", re.compile(r"\b(operations?|operational|throughput|congestion)\b", re.I)),
 )
 
+LOCATION_SCOPE = re.compile(r"\b(?:near|around|over|at|in|for)\s+([a-z]{2,})\b", re.I)
+NON_LOCATION_SCOPE_WORDS = {"airport", "airports", "high", "low", "poor", "risk", "delay", "delays", "performance", "cancellation"}
+
+
+def interpret_enterprise_filter(question: str) -> str | None:
+    text = (question or "").lower()
+    if "high risk airport" in text or "poor performance" in text:
+        return "high_risk"
+    if "high delay" in text or "high-delay" in text:
+        return "high_delay"
+    if "low on-time" in text or "low on time" in text:
+        return "low_on_time"
+    if "high cancellation" in text:
+        return "high_cancellation"
+    return None
+
+
+def has_explicit_location_scope(question: str) -> bool:
+    return any(match.group(1).lower() not in NON_LOCATION_SCOPE_WORDS for match in LOCATION_SCOPE.finditer(question or ""))
+
 
 def plan_discover_query(question: str, location: str | None = None) -> dict[str, Any]:
     text = (question or "").strip()
@@ -30,6 +50,8 @@ def plan_discover_query(question: str, location: str | None = None) -> dict[str,
     mentions_weather = bool(WEATHER_TERMS.search(text))
     mentions_airports = bool(AIRPORT_TERMS.search(text))
     mentions_live = bool(LIVE_TERMS.search(text))
+    enterprise_filter = interpret_enterprise_filter(text)
+    enterprise_first = bool(enterprise_filter and not has_explicit_location_scope(text))
 
     if needs_trino:
         primary_source = "trino"
@@ -69,4 +91,7 @@ def plan_discover_query(question: str, location: str | None = None) -> dict[str,
         "needsWeather": needs_weather,
         "needsAirports": needs_airports,
         "enterpriseIntent": enterprise_intent,
+        "enterpriseFilter": enterprise_filter,
+        "enterpriseFirst": enterprise_first,
+        "locationGeocodingSkippedReason": "enterprise_first_query_without_explicit_location" if enterprise_first else None,
     }
