@@ -53,6 +53,8 @@ export function IntelligencePanel({
   onRefreshWeather,
   enterprise,
   enterpriseLoading = false,
+  activeEnterpriseAirportCode,
+  onSelectEnterpriseAirport,
 }: {
   aircraft: LiveAircraft[]
   selected: LiveAircraft | null
@@ -81,6 +83,8 @@ export function IntelligencePanel({
   onRefreshWeather?: () => void
   enterprise?: DiscoverEnterpriseResponse | null
   enterpriseLoading?: boolean
+  activeEnterpriseAirportCode?: string | null
+  onSelectEnterpriseAirport?: (airportCode: string) => void
 }) {
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [airportsOpen, setAirportsOpen] = useState(false)
@@ -100,7 +104,7 @@ export function IntelligencePanel({
   const densityPer10kSqNm = aircraft.length / areaSqNm * 10_000
   const congestion = densityPer10kSqNm < 2 ? "Low" : densityPer10kSqNm < 6 ? "Moderate" : "High"
   return (
-    <aside className="flex w-full shrink-0 flex-col overflow-y-auto border-l border-border/40 bg-card/70 p-4 backdrop-blur-xl lg:w-[360px]">
+    <aside className="flex h-full w-full shrink-0 flex-col overflow-y-auto border-l border-border/40 bg-card/70 p-4 backdrop-blur-xl">
       <section className="mb-5 space-y-3">
         <h2 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider"><Database className="h-4 w-4 text-primary" /> Data Sources</h2>
         <div className="rounded-xl border border-border/40 bg-secondary/20 p-3 text-xs">
@@ -123,11 +127,14 @@ export function IntelligencePanel({
                 <Detail label="Primary Source" value="Trino" />
                 <Detail label="Interpretation" value={enterprise?.queryPlan.enterpriseIntent ?? enterprise?.queryPlan.intent ?? "enterprise"} />
                 <Detail label="Matched Airports" value={String(enterprise?.matchedAirportsCount ?? 0)} />
+                {enterprise?.selectedAirports?.length ? <p className="rounded-md bg-primary/10 px-2 py-1 text-[11px] text-primary">{enterprise.selectedAirports.length} enterprise airport{enterprise.selectedAirports.length === 1 ? "" : "s"} found</p> : null}
+                {activeEnterpriseAirportCode && <p className="text-[11px] text-muted-foreground">Viewing context for {activeEnterpriseAirportCode}</p>}
                 {enterprise?.message && <p className="rounded-lg bg-amber-500/10 px-3 py-2 text-amber-200">{enterprise.message}</p>}
                 {enterprise?.sourceTables.map((table) => <p key={table} className="break-all text-[11px] text-muted-foreground">Source: {table}</p>)}
+                {enterprise?.comparison && enterprise.airportSummaries?.length ? <EnterpriseComparisonTable summaries={enterprise.airportSummaries} /> : null}
                 {enterprise?.airportSummaries?.length ? (
                   <div className="max-h-[720px] space-y-3 overflow-y-auto pr-1">
-                    {enterprise.airportSummaries.map((summary) => <EnterpriseAirportSummary key={summary.airportCode} summary={summary} />)}
+                    {enterprise.airportSummaries.map((summary) => <EnterpriseAirportSummary key={summary.airportCode} summary={summary} selected={summary.airportCode === activeEnterpriseAirportCode} onSelect={onSelectEnterpriseAirport} />)}
                   </div>
                 ) : enterprise?.rows.slice(0, 5).map((row, index) => (
                     <div key={`${row.airportCode}-${index}`} className="rounded-lg border border-border/30 bg-background/20 p-2">
@@ -301,12 +308,44 @@ function Detail({ label, value }: { label: string; value: string }) {
   return <div className="flex justify-between gap-2 text-muted-foreground"><span>{label}</span><span className="text-right text-foreground">{value}</span></div>
 }
 
-function EnterpriseAirportSummary({ summary }: { summary: DiscoverEnterpriseAirportSummary }) {
+function EnterpriseComparisonTable({ summaries }: { summaries: DiscoverEnterpriseAirportSummary[] }) {
+  return (
+    <div className="max-h-48 overflow-auto rounded-lg border border-border/30">
+      <table className="min-w-[520px] text-[10px]">
+        <thead className="sticky top-0 bg-card text-muted-foreground">
+          <tr>{["Airport", "Risk", "On-Time", "Delay Rate", "Avg Dep Delay", "Cancelled"].map((heading) => <th key={heading} className="px-2 py-1 text-left font-medium">{heading}</th>)}</tr>
+        </thead>
+        <tbody>
+          {summaries.map((summary) => (
+            <tr key={summary.airportCode} className="border-t border-border/20">
+              <td className="px-2 py-1 font-semibold text-primary">{summary.airportCode}</td>
+              <td className="px-2 py-1">{summary.risk}</td>
+              <td className="px-2 py-1">{formatPercent(summary.rates.onTimePercentage)}</td>
+              <td className="px-2 py-1">{formatPercent(summary.rates.delayRate)}</td>
+              <td className="px-2 py-1">{formatMinutes(summary.averages.departureDelay)}</td>
+              <td className="px-2 py-1">{formatMetric(summary.totals.cancelledFlights)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function EnterpriseAirportSummary({ summary, selected = false, onSelect }: { summary: DiscoverEnterpriseAirportSummary; selected?: boolean; onSelect?: (airportCode: string) => void }) {
   const [dailyOpen, setDailyOpen] = useState(false)
   const flightTrend = dailyTrend(summary.dailyRecords, "flights")
   const delayTrend = dailyTrend(summary.dailyRecords, "delayed")
   return (
-    <div className="rounded-lg border border-border/40 bg-background/20 p-3">
+    <div
+      role={onSelect ? "button" : undefined}
+      tabIndex={onSelect ? 0 : undefined}
+      onClick={() => onSelect?.(summary.airportCode)}
+      onKeyDown={(event) => {
+        if ((event.key === "Enter" || event.key === " ") && onSelect) onSelect(summary.airportCode)
+      }}
+      className={`rounded-lg border p-3 transition ${selected ? "border-primary/70 bg-primary/10 ring-1 ring-primary/30" : "border-border/40 bg-background/20"} ${onSelect ? "cursor-pointer hover:border-primary/50" : ""}`}
+    >
       <div className="flex items-start justify-between gap-2">
         <span className="text-sm font-semibold text-primary">{summary.airportCode}</span>
         <div className="flex flex-wrap justify-end gap-1 text-[10px]">
@@ -349,7 +388,10 @@ function EnterpriseAirportSummary({ summary }: { summary: DiscoverEnterpriseAirp
       )}
       <p className="mt-3 rounded-lg bg-primary/10 px-2 py-1.5 text-[11px] text-primary">{analystSummary(summary)}</p>
       <button
-        onClick={() => setDailyOpen((open) => !open)}
+        onClick={(event) => {
+          event.stopPropagation()
+          setDailyOpen((open) => !open)
+        }}
         className="mt-3 flex w-full items-center justify-between rounded-md border border-border/30 bg-secondary/20 px-2 py-1.5 text-[11px] text-muted-foreground transition hover:text-foreground"
       >
         Daily Records

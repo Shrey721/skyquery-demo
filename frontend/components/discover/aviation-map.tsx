@@ -10,6 +10,7 @@ interface AviationMapProps {
   onSelectAircraft: (aircraft: LiveAircraft) => void
   onBoundsChange: (bounds: MapBounds) => void
   focusLocation?: { latitude: number; longitude: number; zoom?: number; nonce: number } | null
+  fitLocations?: { locations: Array<{ latitude: number; longitude: number }>; nonce: number } | null
   airports?: NearbyAirport[]
   showAirports?: boolean
 }
@@ -129,7 +130,7 @@ function sampleAircraft(map: any, aircraft: LiveAircraft[], cap: number, cellSiz
   return sampled
 }
 
-export function AviationMap({ aircraft, selectedAircraft, onSelectAircraft, onBoundsChange, focusLocation, airports = [], showAirports = false }: AviationMapProps) {
+export function AviationMap({ aircraft, selectedAircraft, onSelectAircraft, onBoundsChange, focusLocation, fitLocations, airports = [], showAirports = false }: AviationMapProps) {
   const hostRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<any>(null)
   const leafletRef = useRef<any>(null)
@@ -139,6 +140,7 @@ export function AviationMap({ aircraft, selectedAircraft, onSelectAircraft, onBo
   const aircraftRef = useRef(aircraft)
   const airportsRef = useRef(airports)
   const showAirportsRef = useRef(showAirports)
+  const fitLocationsRef = useRef(fitLocations)
   const selectedRef = useRef(selectedAircraft)
   const onSelectRef = useRef(onSelectAircraft)
   const onBoundsRef = useRef(onBoundsChange)
@@ -161,6 +163,20 @@ export function AviationMap({ aircraft, selectedAircraft, onSelectAircraft, onBo
     if (!map || !focusLocation) return
     map.setView([focusLocation.latitude, focusLocation.longitude], focusLocation.zoom ?? 8, { animate: true })
   }, [focusLocation])
+
+  useEffect(() => {
+    fitLocationsRef.current = fitLocations
+    const map = mapRef.current
+    if (!map || !fitLocations || fitLocations.locations.length < 2) return
+    map.fitBounds(fitLocations.locations.map((location) => [location.latitude, location.longitude]), { padding: [32, 32] })
+  }, [fitLocations])
+
+  useEffect(() => {
+    if (!hostRef.current) return
+    const observer = new ResizeObserver(() => mapRef.current?.invalidateSize({ pan: false }))
+    observer.observe(hostRef.current)
+    return () => observer.disconnect()
+  }, [])
 
   renderRef.current = () => {
     const L = leafletRef.current
@@ -283,6 +299,10 @@ export function AviationMap({ aircraft, selectedAircraft, onSelectAircraft, onBo
       aircraftLayerRef.current = L.layerGroup().addTo(map)
       airportLayerRef.current = L.layerGroup().addTo(map)
       mapRef.current = map
+      const pendingFit = fitLocationsRef.current
+      if (pendingFit && pendingFit.locations.length >= 2) {
+        map.fitBounds(pendingFit.locations.map((location) => [location.latitude, location.longitude]), { padding: [32, 32] })
+      }
       const reportBounds = () => {
         const visible = map.getBounds()
         onBoundsRef.current({

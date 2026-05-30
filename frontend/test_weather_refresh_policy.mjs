@@ -9,6 +9,7 @@ assert.equal(weatherCacheKey({ label: "A", latitude: 28.61, longitude: 77.21 }),
 assert.equal(isAllowedWeatherFetchReason("initial_load"), true)
 assert.equal(isAllowedWeatherFetchReason("manual_refresh"), true)
 assert.equal(isAllowedWeatherFetchReason("search_submit"), true)
+assert.equal(isAllowedWeatherFetchReason("enterprise_airport_select"), true)
 assert.equal(isAllowedWeatherFetchReason("hover"), false)
 assert.equal(isAllowedWeatherFetchReason("map_pan"), false)
 assert.equal(isAllowedWeatherFetchReason("map_zoom"), false)

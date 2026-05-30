@@ -14,7 +14,7 @@ function createWeatherFetchRecorder() {
       return true
     },
     fetchFlightsForLocation(reason) {
-      if (!["initial_load", "manual_refresh", "search_submit"].includes(reason)) {
+      if (!["initial_load", "manual_refresh", "search_submit", "enterprise_airport_select"].includes(reason)) {
         return false
       }
       flightCalls.push(reason)
@@ -46,6 +46,8 @@ assert.equal(recorder.fetchWeatherForLocation("initial_load"), true)
 assert.equal(recorder.fetchWeatherForLocation("manual_refresh"), true)
 assert.equal(recorder.fetchWeatherForLocation("search_submit"), true)
 assert.deepEqual(recorder.weatherCalls, ["initial_load", "manual_refresh", "search_submit"])
+assert.equal(recorder.fetchWeatherForLocation("enterprise_airport_select"), true)
+assert.equal(recorder.fetchFlightsForLocation("enterprise_airport_select"), true)
 
 const searchRecorder = createWeatherFetchRecorder()
 searchRecorder.searchSubmitForQuery("show temperature over Tokyo")

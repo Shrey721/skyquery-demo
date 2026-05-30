@@ -2,7 +2,7 @@ const WEATHER_TERMS = /\b(weather|temperature|wind|rain|cloud|visibility|aviatio
 const FLIGHT_TERMS = /\b(flights?|aircraft|planes?|airspace|traffic)\b/i
 const IMPACT_TERMS = /\b(affected|impacted|storm|severe weather|bad weather|rain|heavy rain|high wind|strong wind|poor visibility|low visibility|weather affected|weather impacted|affected by weather|aviation risk)\b/i
 const AIRPORT_TERMS = /\b(airports?|nearest airport|nearby airports|major airports)\b/i
-const ENTERPRISE_TERMS = /\b(delay|delayed|on[- ]?time|performance|cancellation|cancellations|cancelled|operations|operational|historical|enterprise|throughput|airport stats|airport statistics|kpi|congestion|risk from enterprise|high risk airports?)\b/i
+const ENTERPRISE_TERMS = /\b(delay|delayed|on[- ]?time|performance|cancellation|cancellations|cancelled|operations|operational|historical|enterprise|throughput|airport stats|airport statistics|kpi|congestion|risk from enterprise|high risk airports?|compare)\b/i
 
 export function semanticEnterpriseFilter(query) {
   const text = query.trim().toLowerCase()
@@ -19,6 +19,10 @@ export function hasExplicitLocationScope(query) {
     .some((match) => !excluded.has(match[1].toLowerCase()))
 }
 
+export function isComparisonQuery(query) {
+  return /\b(compare|versus|vs)\b/i.test(query) || query.toLowerCase().includes(" between ")
+}
+
 export function parseDiscoverQuery(query) {
   const text = query.trim().toLowerCase()
   const asksImpact = IMPACT_TERMS.test(text)
@@ -28,7 +32,8 @@ export function parseDiscoverQuery(query) {
   const mentionsAirports = AIRPORT_TERMS.test(text)
   const needsTrino = ENTERPRISE_TERMS.test(text)
   const enterpriseFilter = semanticEnterpriseFilter(text)
-  const enterpriseFirst = Boolean(enterpriseFilter && !hasExplicitLocationScope(text))
+  const comparison = isComparisonQuery(text)
+  const enterpriseFirst = Boolean((enterpriseFilter || comparison) && !hasExplicitLocationScope(text))
   const requestedMetric = /\btemperature\b/.test(text)
     ? "temperature"
     : /\bvisibility\b/.test(text)
@@ -89,9 +94,11 @@ export function parseDiscoverQuery(query) {
       needsAirports: fetchAirports,
       enterpriseFirst,
       locationGeocodingSkippedReason: enterpriseFirst ? "enterprise_first_query_without_explicit_location" : null,
+      comparison,
     },
     semanticEnterpriseFilter: enterpriseFilter,
     enterpriseFirst,
+    comparison,
   }
 }
 

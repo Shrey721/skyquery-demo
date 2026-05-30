@@ -1,6 +1,6 @@
 "use client"
 
-import { Activity, MapPin, Plane, Search } from "lucide-react"
+import { MapPin, Plane, Search } from "lucide-react"
 
 interface DiscoverFiltersProps {
   search: string
@@ -10,10 +10,9 @@ interface DiscoverFiltersProps {
   onToggleOnGround: () => void
   showAirports?: boolean
   onToggleAirports?: () => void
-  weatherConnected?: boolean
 }
 
-export function DiscoverFilters({ search, onSearchChange, onSearchSubmit, showOnGround, onToggleOnGround, showAirports = false, onToggleAirports, weatherConnected = false }: DiscoverFiltersProps) {
+export function DiscoverFilters({ search, onSearchChange, onSearchSubmit, showOnGround, onToggleOnGround, showAirports = false, onToggleAirports }: DiscoverFiltersProps) {
   return (
     <div className="flex flex-wrap items-center gap-3 border-b border-border/30 bg-background/70 px-4 py-3 backdrop-blur-lg">
       <form
@@ -34,9 +33,6 @@ export function DiscoverFilters({ search, onSearchChange, onSearchSubmit, showOn
       <span className="flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 text-xs font-medium text-primary">
         <Plane className="h-3.5 w-3.5" /> Live Airspace
       </span>
-      <span className="flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 text-xs font-medium text-primary">
-        <Activity className="h-3.5 w-3.5" /> Congestion
-      </span>
       <button
         type="button"
         onClick={onToggleAirports}
@@ -51,9 +47,6 @@ export function DiscoverFilters({ search, onSearchChange, onSearchSubmit, showOn
       >
         Include on-ground aircraft
       </button>
-      <span className={`text-xs ${weatherConnected ? "text-emerald-400" : "text-muted-foreground"}`}>
-        Weather {weatherConnected ? "connected" : "loading"}
-      </span>
     </div>
   )
 }

@@ -2,8 +2,9 @@
 
 import dynamic from "next/dynamic"
 import Link from "next/link"
-import { MessageSquare, RefreshCw, Search } from "lucide-react"
+import { ChevronLeft, MessageSquare, RefreshCw, Search, X } from "lucide-react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import type { CSSProperties } from "react"
 import { SkyQueryLogo } from "@/components/skyquery-logo"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { DiscoverFilters } from "./discover-filters"
@@ -33,6 +34,7 @@ export function DiscoverPage() {
   const [weatherSummary, setWeatherSummary] = useState<string | null>(null)
   const [weatherImpactAssessment, setWeatherImpactAssessment] = useState<any>(null)
   const [focusLocation, setFocusLocation] = useState<{ latitude: number; longitude: number; zoom?: number; nonce: number } | null>(null)
+  const [fitLocations, setFitLocations] = useState<{ locations: Array<{ latitude: number; longitude: number }>; nonce: number } | null>(null)
   const [submittedSearchRegion, setSubmittedSearchRegion] = useState<WeatherRegion | null>(null)
   const [nearbyAirports, setNearbyAirports] = useState<NearbyAirport[]>([])
   const [nearbyAirportsContext, setNearbyAirportsContext] = useState<"selected_aircraft" | "search_area" | "current_view" | null>(null)
@@ -44,6 +46,10 @@ export function DiscoverPage() {
   const [showAirports, setShowAirports] = useState(false)
   const [enterprise, setEnterprise] = useState<DiscoverEnterpriseResponse | null>(null)
   const [enterpriseLoading, setEnterpriseLoading] = useState(false)
+  const [activeEnterpriseAirportCode, setActiveEnterpriseAirportCode] = useState<string | null>(null)
+  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [sidebarWidth, setSidebarWidth] = useState(360)
+  const [resizingSidebar, setResizingSidebar] = useState(false)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const hasLoadedInitialBoundsRef = useRef(false)
   const requestIdRef = useRef(0)
@@ -94,7 +100,7 @@ export function DiscoverPage() {
     }
   }, [])
 
-  const loadFlights = useCallback(async (visibleBounds: MapBounds, options: { forceRefresh?: boolean; reason?: "initial_load" | "manual_refresh" | "search_submit" } = {}) => {
+  const loadFlights = useCallback(async (visibleBounds: MapBounds, options: { forceRefresh?: boolean; reason?: "initial_load" | "manual_refresh" | "search_submit" | "enterprise_airport_select" } = {}) => {
     const requestId = requestIdRef.current + 1
     requestIdRef.current = requestId
     setLoading(true)
@@ -154,10 +160,62 @@ export function DiscoverPage() {
     if (region) fetchWeatherForLocation("manual_refresh", region)
   }, [bounds, fetchWeatherForLocation, search, submittedSearchRegion, weatherRegion])
 
+  const switchEnterpriseAirport = useCallback(async (airport: NearbyAirport, enterpriseAirportCode = airport.code) => {
+    const intent = parseDiscoverQuery(search)
+    const region = { label: `${airport.code} - ${airport.name}`, latitude: airport.lat, longitude: airport.lon }
+    const airportBounds = boundsAroundLocation({ latitude: airport.lat, longitude: airport.lon })
+    setActiveEnterpriseAirportCode(enterpriseAirportCode)
+    setSubmittedSearchRegion(region)
+    setFitLocations(null)
+    focusNonceRef.current += 1
+    setFocusLocation({ latitude: airport.lat, longitude: airport.lon, zoom: 8, nonce: focusNonceRef.current })
+    setBounds(airportBounds)
+    setShowAirports(true)
+    setError(null)
+    setWeatherSummary(null)
+    setWeatherImpactAssessment(null)
+    const [flightResponse, weatherResponse] = await Promise.all([
+      loadFlights(airportBounds, { forceRefresh: true, reason: "enterprise_airport_select" }),
+      fetchWeatherForLocation("enterprise_airport_select", region),
+      loadNearbyAirports(airport.lat, airport.lon, "search_area", region.label),
+    ])
+    if (flightResponse && weatherResponse && intent.impactMode) {
+      const impacted = shouldMarkFlightsImpacted(intent, weatherResponse)
+      const markedAircraft = flightResponse.aircraft.map((flight) => ({ ...flight, weather_impacted: impacted }))
+      setAircraft(markedAircraft)
+      setWeatherImpactAssessment(buildWeatherImpactAssessment(intent, weatherResponse, markedAircraft.length))
+      setWeatherSummary(weatherImpactSummary(intent, weatherResponse, impacted ? markedAircraft.length : 0))
+    } else if (weatherResponse) {
+      setWeatherSummary(requestedWeatherMetricSummary(intent, weatherResponse, flightResponse?.aircraft.length ?? 0))
+    }
+  }, [fetchWeatherForLocation, loadFlights, loadNearbyAirports, search])
+
   const handleSearchChange = useCallback((value: string) => {
     setSearch(value)
     setSubmittedSearchRegion(null)
   }, [])
+
+  useEffect(() => {
+    const savedWidth = Number(window.localStorage.getItem("skyquery_discover_sidebar_width"))
+    if (Number.isFinite(savedWidth) && savedWidth >= 320 && savedWidth <= 640) setSidebarWidth(savedWidth)
+  }, [])
+
+  useEffect(() => {
+    if (!resizingSidebar) return
+    const handleMouseMove = (event: MouseEvent) => {
+      setSidebarWidth(Math.max(320, Math.min(640, window.innerWidth - event.clientX)))
+    }
+    const handleMouseUp = () => {
+      setResizingSidebar(false)
+      window.localStorage.setItem("skyquery_discover_sidebar_width", String(sidebarWidth))
+    }
+    window.addEventListener("mousemove", handleMouseMove)
+    window.addEventListener("mouseup", handleMouseUp)
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove)
+      window.removeEventListener("mouseup", handleMouseUp)
+    }
+  }, [resizingSidebar, sidebarWidth])
 
   const submitSearch = useCallback(() => {
     async function runSearch() {
@@ -167,6 +225,8 @@ export function DiscoverPage() {
         enterpriseRequestIdRef.current = enterpriseRequestId
         setEnterprise(null)
         setEnterpriseLoading(false)
+        setActiveEnterpriseAirportCode(null)
+        setFitLocations(null)
         if (intent.selectedAircraftAirportMode) {
           setShowAirports(true)
           if (!selected) {
@@ -198,6 +258,14 @@ export function DiscoverPage() {
             if (!selectedAirport) {
               setError(enterpriseCandidates.message || "No high-risk airports found in the selected enterprise data.")
               return
+            }
+            setActiveEnterpriseAirportCode(enterpriseCandidates.airportSummaries?.[0]?.airportCode ?? selectedAirport.code)
+            if (enterpriseCandidates.comparison && (enterpriseCandidates.selectedAirports?.length ?? 0) > 1) {
+              focusNonceRef.current += 1
+              setFitLocations({
+                locations: enterpriseCandidates.selectedAirports!.map((airport) => ({ latitude: airport.lat, longitude: airport.lon })),
+                nonce: focusNonceRef.current,
+              })
             }
             location = {
               label: `${selectedAirport.code} - ${selectedAirport.name}`,
@@ -239,13 +307,15 @@ export function DiscoverPage() {
         const searchBounds = boundsAroundLocation(location)
         hasLoadedInitialBoundsRef.current = true
         setSubmittedSearchRegion(region)
-        focusNonceRef.current += 1
-        setFocusLocation({
-          latitude: location.latitude,
-          longitude: location.longitude,
-          zoom: 8,
-          nonce: focusNonceRef.current,
-        })
+        if (!enterpriseCandidates?.comparison) {
+          focusNonceRef.current += 1
+          setFocusLocation({
+            latitude: location.latitude,
+            longitude: location.longitude,
+            zoom: 8,
+            nonce: focusNonceRef.current,
+          })
+        }
         setBounds(searchBounds)
         setError(null)
         setWeatherSummary(null)
@@ -362,10 +432,24 @@ export function DiscoverPage() {
     })
   }, [aircraft, search, searchRegion, showOnGround])
 
+  const mapAirports = useMemo(() => {
+    const merged = [...(enterprise?.selectedAirports ?? []), ...nearbyAirports]
+    return merged.filter((airport, index) => merged.findIndex((candidate) => candidate.ident === airport.ident) === index)
+  }, [enterprise?.selectedAirports, nearbyAirports])
+
+  const handleEnterpriseAirportSelect = useCallback((airportCode: string) => {
+    const airport = enterprise?.selectedAirports?.find((candidate) =>
+      [candidate.code, candidate.iataCode, candidate.icaoCode, candidate.ident].some((code) => code?.toUpperCase() === airportCode.toUpperCase())
+    )
+    if (airport) switchEnterpriseAirport(airport, airportCode)
+  }, [enterprise?.selectedAirports, switchEnterpriseAirport])
+
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
-      <header className="flex items-center justify-between border-b border-border/40 bg-background/80 px-4 py-3 backdrop-blur-xl">
-        <SkyQueryLogo size="sm" />
+      <header className="relative z-[1000] flex items-center justify-between border-b border-border/40 bg-background/80 px-4 py-3 backdrop-blur-xl">
+        <Link href="/" aria-label="SkyQuery home" className="rounded-lg transition-opacity hover:opacity-80">
+          <SkyQueryLogo size="sm" />
+        </Link>
         <nav className="flex items-center rounded-lg border border-border/30 bg-secondary/20 p-1">
           <Link href="/" className="flex items-center gap-2 rounded-md px-4 py-2 text-sm text-muted-foreground hover:text-foreground">
             <MessageSquare className="h-4 w-4" /> Chat
@@ -376,10 +460,10 @@ export function DiscoverPage() {
         </nav>
         <ThemeToggle />
       </header>
-      <DiscoverFilters search={search} onSearchChange={handleSearchChange} onSearchSubmit={submitSearch} showOnGround={showOnGround} onToggleOnGround={() => setShowOnGround((value) => !value)} showAirports={showAirports} onToggleAirports={toggleAirports} weatherConnected={Boolean(weather) && !weatherError} />
-      <main className="flex min-h-0 flex-1 flex-col lg:flex-row">
+      <DiscoverFilters search={search} onSearchChange={handleSearchChange} onSearchSubmit={submitSearch} showOnGround={showOnGround} onToggleOnGround={() => setShowOnGround((value) => !value)} showAirports={showAirports} onToggleAirports={toggleAirports} />
+      <main className="relative flex min-h-0 flex-1 flex-col lg:flex-row">
         <div className="relative min-h-[420px] flex-1">
-          <AviationMap aircraft={filteredAircraft} selectedAircraft={selected} onSelectAircraft={setSelected} onBoundsChange={handleBoundsChange} focusLocation={focusLocation} airports={nearbyAirports} showAirports={showAirports} />
+          <AviationMap aircraft={filteredAircraft} selectedAircraft={selected} onSelectAircraft={setSelected} onBoundsChange={handleBoundsChange} focusLocation={focusLocation} fitLocations={fitLocations} airports={mapAirports} showAirports={showAirports} />
           <div className="absolute left-4 top-4 z-[500] rounded-xl border border-border/40 bg-card/90 px-3 py-2 text-xs shadow-xl backdrop-blur">
             <div className="flex items-center gap-2 text-primary"><span className="h-2 w-2 animate-pulse rounded-full bg-primary" /> {dataStatus === "demo" ? "SAMPLE AIRSPACE" : "LIVE OPEN SKY"}</div>
             <p className="mt-1 text-muted-foreground">{loading ? "Loading live aircraft..." : `${filteredAircraft.length} aircraft in current view`}</p>
@@ -396,27 +480,63 @@ export function DiscoverPage() {
           {!loading && error && <MapMessage text={error} error />}
           {!loading && !error && filteredAircraft.length === 0 && <MapMessage text="No live aircraft found in this region." />}
         </div>
-        <IntelligencePanel
-          aircraft={filteredAircraft}
-          selected={selected}
-          loading={loading}
-          apiConnected={dataStatus !== "demo" && Boolean(lastUpdated)}
-          bounds={bounds}
-          weather={weather}
-          weatherRegion={weatherRegion}
-          weatherLoading={weatherLoading}
-          weatherError={weatherError}
-          weatherSummary={weatherSummary}
-          weatherImpactAssessment={weatherImpactAssessment}
-          nearbyAirports={nearbyAirports}
-          nearbyAirportsContext={nearbyAirportsContext}
-          nearbyAirportsError={nearbyAirportsError}
-          nearbyAirportsLabel={nearbyAirportsLabel}
-          nearbyAirportsSource={nearbyAirportsSource}
-          onRefreshWeather={refreshWeather}
-          enterprise={enterprise}
-          enterpriseLoading={enterpriseLoading}
-        />
+        <div
+          className={`relative shrink-0 overflow-hidden transition-[width] duration-200 ${sidebarOpen ? "w-full lg:w-[var(--discover-sidebar-width)]" : "w-0"}`}
+          style={{ "--discover-sidebar-width": `${sidebarWidth}px` } as CSSProperties}
+        >
+          {sidebarOpen && (
+            <button
+              type="button"
+              onMouseDown={(event) => {
+                event.preventDefault()
+                setResizingSidebar(true)
+              }}
+              aria-label="Resize intelligence panel"
+              className="absolute inset-y-0 left-0 z-20 hidden w-2 cursor-col-resize border-l border-transparent transition hover:border-primary/50 hover:bg-primary/10 lg:block"
+            />
+          )}
+          <button
+            type="button"
+            onClick={() => setSidebarOpen(false)}
+            aria-label="Collapse intelligence panel"
+            className="absolute right-2 top-2 z-30 rounded-md border border-border/40 bg-card/90 p-1 text-muted-foreground transition hover:text-foreground"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+          <IntelligencePanel
+            aircraft={filteredAircraft}
+            selected={selected}
+            loading={loading}
+            apiConnected={dataStatus !== "demo" && Boolean(lastUpdated)}
+            bounds={bounds}
+            weather={weather}
+            weatherRegion={weatherRegion}
+            weatherLoading={weatherLoading}
+            weatherError={weatherError}
+            weatherSummary={weatherSummary}
+            weatherImpactAssessment={weatherImpactAssessment}
+            nearbyAirports={nearbyAirports}
+            nearbyAirportsContext={nearbyAirportsContext}
+            nearbyAirportsError={nearbyAirportsError}
+            nearbyAirportsLabel={nearbyAirportsLabel}
+            nearbyAirportsSource={nearbyAirportsSource}
+            onRefreshWeather={refreshWeather}
+            enterprise={enterprise}
+            enterpriseLoading={enterpriseLoading}
+            activeEnterpriseAirportCode={activeEnterpriseAirportCode}
+            onSelectEnterpriseAirport={handleEnterpriseAirportSelect}
+          />
+        </div>
+        {!sidebarOpen && (
+          <button
+            type="button"
+            onClick={() => setSidebarOpen(true)}
+            aria-label="Open intelligence panel"
+            className="absolute right-0 top-3 z-[600] rounded-l-lg border border-r-0 border-border/50 bg-card/95 p-2 text-muted-foreground shadow-lg backdrop-blur transition hover:text-foreground"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+        )}
       </main>
     </div>
   )

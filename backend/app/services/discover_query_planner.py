@@ -10,7 +10,7 @@ WEATHER_TERMS = re.compile(r"\b(weather|temperature|rain|wind|storm|visibility|w
 AIRPORT_TERMS = re.compile(r"\b(airports?|nearest airport|nearby airports?|airport layer)\b", re.I)
 ENTERPRISE_TERMS = re.compile(
     r"\b(delay|delayed|on[- ]?time|performance|cancellations?|cancelled|operations?|operational|"
-    r"historical|enterprise|throughput|airport stats?|airport statistics|kpis?|congestion|risk from enterprise|high risk airports?)\b",
+    r"historical|enterprise|throughput|airport stats?|airport statistics|kpis?|congestion|risk from enterprise|high risk airports?|compare)\b",
     re.I,
 )
 
@@ -44,6 +44,11 @@ def has_explicit_location_scope(question: str) -> bool:
     return any(match.group(1).lower() not in NON_LOCATION_SCOPE_WORDS for match in LOCATION_SCOPE.finditer(question or ""))
 
 
+def is_comparison_query(question: str) -> bool:
+    text = (question or "").lower()
+    return bool(re.search(r"\b(compare|versus|vs)\b", text) or " between " in text)
+
+
 def plan_discover_query(question: str, location: str | None = None) -> dict[str, Any]:
     text = (question or "").strip()
     needs_trino = bool(ENTERPRISE_TERMS.search(text))
@@ -51,7 +56,8 @@ def plan_discover_query(question: str, location: str | None = None) -> dict[str,
     mentions_airports = bool(AIRPORT_TERMS.search(text))
     mentions_live = bool(LIVE_TERMS.search(text))
     enterprise_filter = interpret_enterprise_filter(text)
-    enterprise_first = bool(enterprise_filter and not has_explicit_location_scope(text))
+    comparison = is_comparison_query(text)
+    enterprise_first = bool((enterprise_filter or comparison) and not has_explicit_location_scope(text))
 
     if needs_trino:
         primary_source = "trino"
@@ -94,4 +100,5 @@ def plan_discover_query(question: str, location: str | None = None) -> dict[str,
         "enterpriseFilter": enterprise_filter,
         "enterpriseFirst": enterprise_first,
         "locationGeocodingSkippedReason": "enterprise_first_query_without_explicit_location" if enterprise_first else None,
+        "comparison": comparison,
     }

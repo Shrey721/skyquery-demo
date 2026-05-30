@@ -43,6 +43,11 @@ class AirportServiceTests(unittest.TestCase):
         result = airport_service.airports_in_bounds(20, 70, 35, 90, limit=500)
         self.assertLessEqual(len(result["airports"]), 100)
 
+    def test_comparison_query_resolves_requested_airports(self):
+        result = airport_service.airports_from_comparison_query("compare DEL and ATL performance")
+        codes = [airport["code"] for airport in result]
+        self.assertEqual(codes, ["DEL", "ATL"])
+
 
 if __name__ == "__main__":
     unittest.main()

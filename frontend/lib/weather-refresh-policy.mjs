@@ -1,6 +1,6 @@
 export const WEATHER_CACHE_TTL_MS = 600_000
 export const WEATHER_GRID_DECIMALS = 1
-export const ALLOWED_WEATHER_FETCH_REASONS = new Set(["initial_load", "manual_refresh", "search_submit"])
+export const ALLOWED_WEATHER_FETCH_REASONS = new Set(["initial_load", "manual_refresh", "search_submit", "enterprise_airport_select"])
 
 export function roundCoordinate(value, decimals = WEATHER_GRID_DECIMALS) {
   const factor = 10 ** decimals

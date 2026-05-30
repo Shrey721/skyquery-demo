@@ -56,6 +56,7 @@ export interface DiscoverEnterpriseResponse {
     enterpriseFilter?: string | null
     enterpriseFirst?: boolean
     locationGeocodingSkippedReason?: string | null
+    comparison?: boolean
   }
   available: boolean
   enterpriseConnected?: boolean
@@ -68,6 +69,7 @@ export interface DiscoverEnterpriseResponse {
   honestyNote?: string
   interpretedEnterpriseFilter?: string | null
   selectedAirports?: NearbyAirport[]
+  comparison?: boolean
 }
 
 export async function fetchDiscoverEnterprise(

@@ -7,7 +7,7 @@ import logging
 from typing import Any
 
 from app.executors.starburst_executor import StarburstExecutor
-from app.services.airport_service import airports_by_codes
+from app.services.airport_service import airports_by_codes, airports_from_comparison_query
 from app.services.discover_query_planner import interpret_enterprise_filter, plan_discover_query
 from app.services.schema_loader import load_schema
 from app.services.trino_service import qualified_name, quote_identifier
@@ -303,7 +303,8 @@ async def discover_enterprise_candidates(
         plan["enterpriseFirst"],
         plan["locationGeocodingSkippedReason"],
     )
-    if not enterprise_filter:
+    comparison_airports = airports_from_comparison_query(question) if plan["comparison"] else []
+    if not enterprise_filter and not comparison_airports:
         return {"queryPlan": plan, "interpretedEnterpriseFilter": None, "selectedAirports": []}
 
     selected_schema = schema if schema is not None else load_schema()
@@ -328,12 +329,21 @@ async def discover_enterprise_candidates(
         return {"queryPlan": plan, "available": False, "enterpriseConnected": False, "interpretedEnterpriseFilter": enterprise_filter, "message": ENTERPRISE_REQUIRED_MESSAGE, "sourceTables": source_tables, "rows": [], "airportSummaries": [], "selectedAirports": [], "matchedAirportsCount": 0}
 
     summaries = aggregate_airport_summaries(shaped_rows)
-    candidates = select_airport_candidates(summaries, enterprise_filter)
+    if comparison_airports:
+        requested_codes = {
+            str(code).upper()
+            for airport in comparison_airports
+            for code in (airport.get("code"), airport.get("iataCode"), airport.get("icaoCode"), airport.get("ident"))
+            if code
+        }
+        candidates = [summary for summary in summaries if summary["airportCode"] in requested_codes]
+    else:
+        candidates = select_airport_candidates(summaries, enterprise_filter)
     logger.info("Discover semantic airport candidates | interpreted_enterprise_filter=%s | airport_candidates=%s", enterprise_filter, [candidate["airportCode"] for candidate in candidates])
     if not candidates:
         logger.info("Discover semantic no match | reason=no_airport_matching_filter | interpreted_enterprise_filter=%s", enterprise_filter)
         return {"queryPlan": plan, "available": True, "enterpriseConnected": True, "interpretedEnterpriseFilter": enterprise_filter, "message": NO_CRITERIA_MATCH_MESSAGE, "sourceTables": source_tables, "rows": shaped_rows, "airportSummaries": [], "selectedAirports": [], "matchedAirportsCount": 0, "honestyNote": HONESTY_NOTE}
-    resolved_airports = airports_by_codes([candidate["airportCode"] for candidate in candidates])
+    resolved_airports = comparison_airports or airports_by_codes([candidate["airportCode"] for candidate in candidates])
     airports_by_code = {airport["code"].upper(): airport for airport in resolved_airports}
     for airport in resolved_airports:
         for code in (airport.get("iataCode"), airport.get("icaoCode"), airport.get("ident")):
@@ -358,5 +368,6 @@ async def discover_enterprise_candidates(
         "selectedAirports": selected_airports,
         "matchedAirportsCount": len(selected_airports),
         "matchedAirports": len(selected_airports),
+        "comparison": plan["comparison"],
         "honestyNote": HONESTY_NOTE,
     }

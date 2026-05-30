@@ -68,6 +68,14 @@ class LowRiskExecutor:
         return [{"airport_code": "ATL", "performance_date": "2026-05-01", "total_flights": 100, "delayed_flights": 2, "cancelled_flights": 0, "avg_departure_delay": 3, "avg_arrival_delay": 2, "on_time_percentage": 98}]
 
 
+class ComparisonExecutor:
+    async def execute(self, sql):
+        return [
+            {"airport_code": "DEL", "performance_date": "2026-05-01", "total_flights": 100, "delayed_flights": 30, "cancelled_flights": 3, "avg_departure_delay": 35, "avg_arrival_delay": 25, "on_time_percentage": 70},
+            {"airport_code": "ATL", "performance_date": "2026-05-01", "total_flights": 120, "delayed_flights": 20, "cancelled_flights": 2, "avg_departure_delay": 18, "avg_arrival_delay": 14, "on_time_percentage": 82},
+        ]
+
+
 class DiscoverEnterpriseTests(unittest.TestCase):
     def test_query_router(self):
         delay = plan_discover_query("show airport performance near Atlanta")
@@ -92,6 +100,9 @@ class DiscoverEnterpriseTests(unittest.TestCase):
         self.assertEqual(enterprise_first["locationGeocodingSkippedReason"], "enterprise_first_query_without_explicit_location")
         scoped = plan_discover_query("show live flights near high-delay airports around Atlanta")
         self.assertFalse(scoped["enterpriseFirst"])
+        comparison = plan_discover_query("compare DEL and ATL performance")
+        self.assertTrue(comparison["comparison"])
+        self.assertTrue(comparison["enterpriseFirst"])
 
     def test_selected_table_and_airport_code_matching(self):
         tables = select_enterprise_tables(SCHEMA)
@@ -150,6 +161,17 @@ class DiscoverEnterpriseTests(unittest.TestCase):
     def test_semantic_enterprise_filter_requires_trino(self):
         result = asyncio.run(discover_enterprise_candidates("show weather impacted flights near high risk airports", schema=SCHEMA, executor=FailingExecutor()))
         self.assertEqual(result["message"], ENTERPRISE_REQUIRED_MESSAGE)
+
+    def test_comparison_query_returns_all_requested_airports(self):
+        airports = [
+            {"code": "DEL", "iataCode": "DEL", "icaoCode": "VIDP", "ident": "VIDP", "name": "Delhi", "city": "New Delhi", "country": "IN", "type": "large_airport", "lat": 28.56, "lon": 77.1, "distanceNm": 0},
+            {"code": "ATL", "iataCode": "ATL", "icaoCode": "KATL", "ident": "KATL", "name": "Atlanta", "city": "Atlanta", "country": "US", "type": "large_airport", "lat": 33.64, "lon": -84.42, "distanceNm": 0},
+        ]
+        with patch("app.services.discover_enterprise_service.airports_from_comparison_query", return_value=airports):
+            result = asyncio.run(discover_enterprise_candidates("compare DEL and ATL performance", schema=SCHEMA, executor=ComparisonExecutor()))
+        self.assertTrue(result["comparison"])
+        self.assertEqual([summary["airportCode"] for summary in result["airportSummaries"]], ["DEL", "ATL"])
+        self.assertEqual([airport["code"] for airport in result["selectedAirports"]], ["DEL", "ATL"])
 
 
 if __name__ == "__main__":

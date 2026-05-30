@@ -39,7 +39,7 @@ export function ThemeToggle() {
   const Icon = current.icon
 
   return (
-    <div ref={ref} className="relative">
+    <div ref={ref} className="relative z-[1100]">
       <button
         onClick={() => setOpen(!open)}
         className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
@@ -49,7 +49,7 @@ export function ThemeToggle() {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full z-50 mt-1.5 w-32 overflow-hidden rounded-lg border border-border/60 bg-popover shadow-lg backdrop-blur-xl">
+        <div className="absolute right-0 top-full z-[1200] mt-1.5 w-32 overflow-hidden rounded-lg border border-border/60 bg-popover shadow-lg backdrop-blur-xl">
           {options.map((opt) => {
             const OptIcon = opt.icon
             const active = theme === opt.key

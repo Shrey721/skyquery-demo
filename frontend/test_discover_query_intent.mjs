@@ -7,7 +7,7 @@ import {
   shouldMarkFlightsImpacted,
   weatherImpactSummary,
 } from "./lib/discover-query-intent.mjs"
-import { hasExplicitLocationScope, semanticEnterpriseFilter } from "./lib/discover-query-intent.mjs"
+import { hasExplicitLocationScope, isComparisonQuery, semanticEnterpriseFilter } from "./lib/discover-query-intent.mjs"
 import { normalizeLocationQuery } from "./lib/location-search.mjs"
 
 const tempTokyo = parseDiscoverQuery("show temperature over Tokyo")
@@ -146,6 +146,8 @@ assert.equal(parseDiscoverQuery("show live flights near high-delay airports").en
 assert.equal(parseDiscoverQuery("show live flights near high-delay airports around Atlanta").enterpriseFirst, false)
 assert.equal(hasExplicitLocationScope("show live flights near high-delay airports around Atlanta"), true)
 assert.equal(hasExplicitLocationScope("show weather impacted flights near high risk airports"), false)
+assert.equal(isComparisonQuery("compare DEL and ATL performance"), true)
+assert.equal(parseDiscoverQuery("compare DEL and ATL performance").enterpriseFirst, true)
 
 const generalWeatherQuery = parseDiscoverQuery("show flights affected by weather near Dubai")
 assert.equal(generalWeatherQuery.impactType, "general_weather")

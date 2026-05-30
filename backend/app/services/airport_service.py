@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import logging
 import math
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -88,6 +89,35 @@ def airports_by_codes(codes: list[str]) -> list[dict[str, Any]]:
         if wanted.intersection(code for code in airport_codes if code):
             matched.append(_airport_payload(airport))
     return matched
+
+
+def airports_from_comparison_query(question: str) -> list[dict[str, Any]]:
+    text = (question or "").lower()
+    clause = re.sub(r"\b(compare|airport|airports|performance|between|stats?|statistics)\b", " ", text)
+    terms = [term.strip() for term in re.split(r"\b(?:and|vs|versus)\b|,", clause) if term.strip()]
+    airports = load_airports()
+    selected: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for term in terms:
+        compact = re.sub(r"[^a-z0-9 ]", " ", term).strip()
+        if not compact:
+            continue
+        exact = [
+            airport for airport in airports
+            if compact.upper() in {airport.iata_code.upper(), airport.gps_code.upper(), airport.ident.upper(), airport.local_code.upper()}
+        ]
+        candidates = exact or [
+            airport for airport in airports
+            if compact == airport.city.lower() or compact in airport.city.lower() or compact in airport.name.lower()
+        ]
+        if not candidates:
+            continue
+        airport = sorted(candidates, key=lambda item: (TYPE_PRIORITY.get(item.type, 99), item.name))[0]
+        code = _code_for(airport).upper()
+        if code not in seen:
+            seen.add(code)
+            selected.append(_airport_payload(airport))
+    return selected
 
 
 def distance_nm(lat_a: float, lon_a: float, lat_b: float, lon_b: float) -> float:
