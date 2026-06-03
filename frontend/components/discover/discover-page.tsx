@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic"
 import Link from "next/link"
-import { ChevronLeft, MessageSquare, RefreshCw, Search, X } from "lucide-react"
+import { ChevronLeft, Compass, LogOut, MessageSquare, RefreshCw, Search, X } from "lucide-react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { CSSProperties } from "react"
 import { SkyQueryLogo } from "@/components/skyquery-logo"
@@ -16,6 +16,7 @@ import { boundsAroundLocation, resolveLocationQuery } from "@/lib/location-searc
 import { buildWeatherImpactAssessment, parseDiscoverQuery, requestedWeatherMetricSummary, shouldMarkFlightsImpacted, weatherImpactSummary } from "@/lib/discover-query-intent.mjs"
 import { fetchAirportsInBounds, fetchNearbyAirports, type NearbyAirport } from "@/lib/nearby-airports-api"
 import { fetchDiscoverEnterprise, fetchDiscoverEnterpriseCandidates, type DiscoverEnterpriseResponse } from "@/lib/discover-enterprise-api"
+import { getCurrentUser, logoutUser } from "@/lib/api"
 
 const AviationMap = dynamic(() => import("./aviation-map").then((module) => module.AviationMap), { ssr: false })
 
@@ -50,6 +51,8 @@ export function DiscoverPage() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [sidebarWidth, setSidebarWidth] = useState(360)
   const [resizingSidebar, setResizingSidebar] = useState(false)
+  const [user, setUser] = useState<any>(null)
+  const [avatarMenuOpen, setAvatarMenuOpen] = useState(false)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const hasLoadedInitialBoundsRef = useRef(false)
   const requestIdRef = useRef(0)
@@ -416,6 +419,16 @@ export function DiscoverPage() {
     loadNearbyAirports(selected.latitude, selected.longitude, "selected_aircraft")
   }, [loadNearbyAirports, selected])
 
+  useEffect(() => {
+    getCurrentUser().then(setUser)
+  }, [])
+
+  const handleLogout = useCallback(async () => {
+    await logoutUser()
+    localStorage.removeItem("skyquery_session_id")
+    window.location.href = "/"
+  }, [])
+
   const searchRegion = useMemo(() => regionFromSearch(search) ?? submittedSearchRegion, [search, submittedSearchRegion])
 
   const filteredAircraft = useMemo(() => {
@@ -457,8 +470,43 @@ export function DiscoverPage() {
           <span className="flex items-center gap-2 rounded-md bg-primary/15 px-4 py-2 text-sm text-primary">
             <Search className="h-4 w-4" /> Discover
           </span>
+          <Link href="/product-tour" className="flex items-center gap-2 rounded-md px-4 py-2 text-sm text-muted-foreground hover:text-foreground">
+            <Compass className="h-4 w-4" /> Product Tour
+          </Link>
         </nav>
-        <ThemeToggle />
+        <div className="flex items-center gap-3">
+          <ThemeToggle />
+          {user && (
+            <div className="relative">
+              <button
+                onClick={() => setAvatarMenuOpen((open) => !open)}
+                className="flex h-7 w-7 items-center justify-center overflow-hidden rounded-full bg-secondary/60 text-xs font-semibold text-muted-foreground transition-all hover:ring-2 hover:ring-primary/50"
+                aria-label="Open user menu"
+              >
+                <img src={user.avatar_url || "https://github.com/ghost.png"} alt={user.username || "GitHub user"} className="h-full w-full object-cover" />
+              </button>
+              {avatarMenuOpen && (
+                <>
+                  <div className="fixed inset-0 z-[1000]" onClick={() => setAvatarMenuOpen(false)} />
+                  <div className="absolute right-0 z-[1001] mt-2 w-48 rounded-lg border border-border bg-popover p-1 shadow-lg">
+                    <div className="px-2.5 py-1.5 text-xs font-semibold text-muted-foreground">
+                      Signed in as
+                      <div className="mt-0.5 truncate font-normal text-foreground">{user.username}</div>
+                    </div>
+                    <div className="my-1 h-px bg-border" />
+                    <button
+                      onClick={handleLogout}
+                      className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-red-500 transition-colors hover:bg-red-500/10"
+                    >
+                      <LogOut className="h-3.5 w-3.5" />
+                      Logout
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
       </header>
       <DiscoverFilters search={search} onSearchChange={handleSearchChange} onSearchSubmit={submitSearch} showOnGround={showOnGround} onToggleOnGround={() => setShowOnGround((value) => !value)} showAirports={showAirports} onToggleAirports={toggleAirports} />
       <main className="relative flex min-h-0 flex-1 flex-col lg:flex-row">

@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect, useRef } from "react"
 import { AnimatePresence, motion } from "framer-motion"
 import Link from "next/link"
-import { MessageSquare, PanelLeft, LogOut, Search } from "lucide-react"
+import { Compass, MessageSquare, PanelLeft, LogOut, Search } from "lucide-react"
 import { AnimatedWave } from "@/components/animated-wave"
 import { LandingHero } from "@/components/landing-hero"
 import { ChatSidebar } from "@/components/chat-sidebar"
@@ -186,6 +186,9 @@ export default function SkyQueryApp() {
   const [isOnboardingCompleting, setIsOnboardingCompleting] = useState(false)
   const [historyHydrated, setHistoryHydrated] = useState(false)
   const lastSavedHistoryKey = useRef<string>("")
+  const connectionBackArmedRef = useRef(false)
+  const phaseRef = useRef<AppPhase>("loading")
+  const connectionRef = useRef<any>(null)
   const activeQueryRef = useRef<{
     requestId: string
     sessionId: string
@@ -195,6 +198,7 @@ export default function SkyQueryApp() {
   } | null>(null)
 
   const currentSession = sessions.find((s) => s.id === currentSessionId) || null
+  const hasSavedActiveTrinoConnection = Boolean(connection?.is_active)
   const connectionCatalog = connection?.catalog || connection?.default_catalog || ""
   const connectionSchema = connection?.schema_name || connection?.default_schema || ""
   const activeCatalogSchema = [connectionCatalog, connectionSchema].filter(Boolean).join(".")
@@ -240,6 +244,11 @@ export default function SkyQueryApp() {
   }, [])
 
   useEffect(() => {
+    phaseRef.current = phase
+    connectionRef.current = connection
+  }, [phase, connection])
+
+  useEffect(() => {
     return () => {
       if (activeQueryRef.current) {
         activeQueryRef.current.cancelled = true
@@ -252,6 +261,54 @@ export default function SkyQueryApp() {
       }
     }
   }, [])
+
+  useEffect(() => {
+    if (phase !== "connection") {
+      connectionBackArmedRef.current = false
+      return
+    }
+
+    if (hasSavedActiveTrinoConnection) return
+
+    const backTo = sessionStorage.getItem("skyquery_connection_back_to") || "/product-tour"
+    if (!connectionBackArmedRef.current) {
+      window.history.pushState({ skyqueryConnectionFlow: true }, "", window.location.href)
+      connectionBackArmedRef.current = true
+    }
+
+    const handlePopState = () => {
+      const latestConnection = connectionRef.current
+      if (phaseRef.current === "connection" && !latestConnection?.is_active) {
+        sessionStorage.removeItem("skyquery_connection_back_to")
+        window.location.replace(backTo)
+      }
+    }
+
+    window.addEventListener("popstate", handlePopState)
+    return () => window.removeEventListener("popstate", handlePopState)
+  }, [phase, hasSavedActiveTrinoConnection])
+
+  useEffect(() => {
+    if (!user || hasSavedActiveTrinoConnection) return
+    if (phase === "landing" || phase === "workspace" || phase === "thinking") {
+      setCurrentSessionId(null)
+      setPendingQuery(null)
+      setPendingCSV(null)
+      setPhase("connection")
+    }
+  }, [hasSavedActiveTrinoConnection, phase, user])
+
+  const leaveUnsavedConnectionFlow = useCallback(() => {
+    sessionStorage.removeItem("skyquery_connection_back_to")
+    setCurrentSessionId(null)
+    setPendingQuery(null)
+    setPendingCSV(null)
+    if (!hasSavedActiveTrinoConnection) {
+      window.location.replace("/product-tour")
+      return
+    }
+    setPhase("landing")
+  }, [hasSavedActiveTrinoConnection])
 
   // LocalStorage is only an optimistic cache; backend history is the source of truth.
   const getUserHistoryStorageKey = (account: any) => `skyquery_sessions_user_${account?.id || account?.email || account?.username || "unknown"}`
@@ -272,7 +329,7 @@ export default function SkyQueryApp() {
     try {
       const stored = localStorage.getItem(storageKey);
       if (stored) {
-        return JSON.parse(stored);
+        return { ...JSON.parse(stored), hasStoredChatState: true };
       }
       if (legacyUsername) {
         const legacyStored = localStorage.getItem(`skyquery_sessions_${legacyUsername}`);
@@ -281,13 +338,13 @@ export default function SkyQueryApp() {
             storage_source: "localStorage_legacy",
             legacy_key: `skyquery_sessions_${legacyUsername}`,
           });
-          return JSON.parse(legacyStored);
+          return { ...JSON.parse(legacyStored), hasStoredChatState: true };
         }
       }
     } catch (e) {
       console.error("Failed to load sessions from localStorage", e);
     }
-    return { sessions: [], currentSessionId: null };
+    return { sessions: [], currentSessionId: null, hasStoredChatState: false };
   };
 
   const mergeSessionLists = (backendSessions: ChatSession[] = [], localSessions: ChatSession[] = []) => {
@@ -344,8 +401,12 @@ export default function SkyQueryApp() {
     // 1. Capture and process URL parameters at startup
     const urlParams = new URLSearchParams(window.location.search);
     const sharedQuery = urlParams.get("q");
+    const authError = urlParams.get("auth_error");
     if (sharedQuery) {
       sessionStorage.setItem("pending_share_query", sharedQuery);
+    }
+    if (authError === "cancelled") {
+      sessionStorage.setItem("skyquery_auth_message", "GitHub sign-in was cancelled.");
     }
     
     const urlSessionId = urlParams.get("session_id");
@@ -354,7 +415,15 @@ export default function SkyQueryApp() {
       localStorage.setItem("skyquery_session_id", urlSessionId);
     }
 
-    if (sharedQuery || urlSessionId) {
+    const authReturnTo = sessionStorage.getItem("skyquery_auth_return_to");
+    if (urlSessionId && authReturnTo === "/product-tour") {
+      sessionStorage.removeItem("skyquery_auth_return_to");
+      sessionStorage.removeItem("just_authorized_github");
+      window.location.replace("/product-tour");
+      return;
+    }
+
+    if (sharedQuery || urlSessionId || authError) {
       window.history.replaceState({}, document.title, window.location.pathname);
     }
 
@@ -391,7 +460,9 @@ export default function SkyQueryApp() {
           const backendSessions = backendHistory?.sessions || [];
           const mergedSessions = mergeSessionLists(backendSessions, localRestored.sessions);
           const currentFromBackend = backendHistory?.currentSessionId;
-          const currentSessionId = currentFromBackend || localRestored.currentSessionId || mergedSessions[0]?.id || null;
+          const currentSessionId = localRestored.hasStoredChatState
+            ? localRestored.currentSessionId || null
+            : currentFromBackend || null;
           restored = { sessions: mergedSessions, currentSessionId };
           console.log("[History Restore] backend restore", {
             storage_source: backendHistory?.storage_source || "backend",
@@ -418,9 +489,17 @@ export default function SkyQueryApp() {
           });
         }
 
+        const restoredActiveSession = restored.currentSessionId
+          ? restored.sessions.find((s: any) => s.id === restored.currentSessionId)
+          : null;
+        const restoredActiveSessionId =
+          restoredActiveSession?.messages && restoredActiveSession.messages.length > 0
+            ? restoredActiveSession.id
+            : null;
+
         setSessions(restored.sessions);
-        setCurrentSessionId(restored.currentSessionId);
-        lastSavedHistoryKey.current = JSON.stringify(restored);
+        setCurrentSessionId(restoredActiveSessionId);
+        lastSavedHistoryKey.current = JSON.stringify({ ...restored, currentSessionId: restoredActiveSessionId });
         setHistoryHydrated(true);
 
         // Check if user just completed a fresh GitHub authorization
@@ -462,12 +541,9 @@ export default function SkyQueryApp() {
 
         // Determine if we should restore to workspace or landing
         let restoredPhase: AppPhase = "landing";
-        if (restored.currentSessionId) {
-          const activeSess = restored.sessions.find((s: any) => s.id === restored.currentSessionId);
-          if (activeSess && activeSess.messages && activeSess.messages.length > 0) {
-            restoredPhase = "workspace";
-            setSidebarOpen(true);
-          }
+        if (restoredActiveSessionId) {
+          restoredPhase = "workspace";
+          setSidebarOpen(true);
         }
 
         setPhase(restoredPhase);
@@ -1016,19 +1092,8 @@ export default function SkyQueryApp() {
         const updated = prev.filter((s) => s.id !== sessionId)
 
         if (currentSessionId === sessionId) {
-          if (updated.length > 0) {
-            const nextActiveId = updated[0].id
-            setCurrentSessionId(nextActiveId)
-            const nextSess = updated[0]
-            if (nextSess.messages && nextSess.messages.length > 0) {
-              setPhase("workspace")
-            } else {
-              setPhase("landing")
-            }
-          } else {
-            setCurrentSessionId(null)
-            setPhase("landing")
-          }
+          setCurrentSessionId(null)
+          setPhase("landing")
         }
         return updated
       })
@@ -1037,15 +1102,7 @@ export default function SkyQueryApp() {
   )
 
   const handleNewChat = useCallback(() => {
-    const sessionId = `session-${Date.now()}`
-    const newSession: ChatSession = {
-      id: sessionId,
-      title: "",
-      messages: [],
-      createdAt: new Date().toISOString(),
-    }
-    setSessions((prev) => [newSession, ...prev])
-    setCurrentSessionId(sessionId)
+    setCurrentSessionId(null)
     setPhase("landing")
   }, [])
 
@@ -1065,7 +1122,7 @@ export default function SkyQueryApp() {
 
       {/* Thinking transition overlay */}
       <AnimatePresence>
-        {phase === "thinking" && (
+        {phase === "thinking" && hasSavedActiveTrinoConnection && (
           <ThinkingTransition onComplete={handleThinkingComplete} />
         )}
       </AnimatePresence>
@@ -1106,12 +1163,14 @@ export default function SkyQueryApp() {
         ) : phase === "auth" ? (
           <AuthGate
             key="auth"
+            message={typeof window !== "undefined" ? sessionStorage.getItem("skyquery_auth_message") || undefined : undefined}
             onLogin={() => {
+              sessionStorage.removeItem("skyquery_auth_message");
               sessionStorage.setItem("just_authorized_github", "true");
               window.location.href = getGithubLoginUrl();
             }}
           />
-        ) : phase === "connection" ? (
+        ) : phase === "connection" || (user && !hasSavedActiveTrinoConnection && (phase === "landing" || phase === "workspace" || phase === "thinking")) ? (
           <ConnectionSetup
             key="connection"
             initialConnection={connection}
@@ -1120,6 +1179,7 @@ export default function SkyQueryApp() {
             onDiscoverSources={discoverSources}
             onSaveSelectedSources={saveSelectedSources}
             onRefreshSelectedContext={refreshSelectedContext}
+            onCancel={leaveUnsavedConnectionFlow}
             onComplete={async () => {
               setIsOnboardingCompleting(true);
               try {
@@ -1163,6 +1223,7 @@ export default function SkyQueryApp() {
                   setPhase("thinking");
                 } else {
                   // Onboarding connection verified and completed successfully
+                  setCurrentSessionId(null);
                   setPhase("landing");
                 }
               } catch (error) {
@@ -1174,7 +1235,7 @@ export default function SkyQueryApp() {
               }
             }}
           />
-        ) : (phase === "landing" || phase === "workspace") ? (
+        ) : hasSavedActiveTrinoConnection && (phase === "landing" || phase === "workspace") ? (
           <motion.div
             key="main-app"
             className="relative z-10 flex h-screen flex-col"
@@ -1199,7 +1260,10 @@ export default function SkyQueryApp() {
                   <PanelLeft className="h-5 w-5" />
                 </button>
                 <button
-                  onClick={() => setPhase("landing")}
+                  onClick={() => {
+                    setCurrentSessionId(null)
+                    setPhase("landing")
+                  }}
                   className="focus:outline-none cursor-pointer"
                   title="Return to landing page"
                 >
@@ -1224,6 +1288,10 @@ export default function SkyQueryApp() {
                 <Link href="/discover" className="flex items-center gap-2 rounded-md px-4 py-2 text-sm text-muted-foreground transition hover:text-foreground">
                   <Search className="h-4 w-4" />
                   Discover
+                </Link>
+                <Link href="/product-tour" className="flex items-center gap-2 rounded-md px-4 py-2 text-sm text-muted-foreground transition hover:text-foreground">
+                  <Compass className="h-4 w-4" />
+                  Product Tour
                 </Link>
               </nav>
               <div className="flex items-center gap-3">

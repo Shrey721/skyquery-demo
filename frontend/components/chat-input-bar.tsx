@@ -1,8 +1,36 @@
 "use client"
 
 import { motion } from "framer-motion"
-import { Send, Paperclip, X, Square } from "lucide-react"
-import { useState } from "react"
+import { Mic, Send, Paperclip, X, Square } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
+
+type VoiceState = "idle" | "listening" | "captured" | "unsupported"
+
+interface SpeechRecognitionResultEventLike {
+  results: ArrayLike<ArrayLike<{ transcript: string }>>
+}
+
+interface SpeechRecognitionLike {
+  continuous: boolean
+  interimResults: boolean
+  lang: string
+  onend: (() => void) | null
+  onerror: (() => void) | null
+  onresult: ((event: SpeechRecognitionResultEventLike) => void) | null
+  start: () => void
+  stop: () => void
+}
+
+interface SpeechRecognitionConstructor {
+  new (): SpeechRecognitionLike
+}
+
+declare global {
+  interface Window {
+    SpeechRecognition?: SpeechRecognitionConstructor
+    webkitSpeechRecognition?: SpeechRecognitionConstructor
+  }
+}
 
 interface ChatInputBarProps {
   onSubmit: (query: string, attachedCSV?: { name: string; headers: string[]; rows: any[] } | null) => void
@@ -14,15 +42,107 @@ export function ChatInputBar({ onSubmit, isLoading = false, onCancel }: ChatInpu
   const [query, setQuery] = useState("")
   const [isFocused, setIsFocused] = useState(false)
   const [attachedCSV, setAttachedCSV] = useState<{ name: string; headers: string[]; rows: any[] } | null>(null)
+  const [voiceState, setVoiceState] = useState<VoiceState>("idle")
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null)
+  const queryBeforeListeningRef = useRef("")
+  const hasCapturedTranscriptRef = useRef(false)
+
+  useEffect(() => {
+    if (!window.SpeechRecognition && !window.webkitSpeechRecognition) {
+      setVoiceState("unsupported")
+    }
+
+    return () => {
+      recognitionRef.current?.stop()
+    }
+  }, [])
+
+  useEffect(() => {
+    if (isLoading && recognitionRef.current) {
+      const recognition = recognitionRef.current
+      recognitionRef.current = null
+      recognition.stop()
+      setVoiceState("idle")
+    }
+  }, [isLoading])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (query.trim() && !isLoading) {
+      const recognition = recognitionRef.current
+      recognitionRef.current = null
+      recognition?.stop()
       onSubmit(query.trim(), attachedCSV)
       setQuery("")
       setAttachedCSV(null)
+      setVoiceState("idle")
     }
   }
+
+  const handleVoiceInput = () => {
+    if (recognitionRef.current) {
+      recognitionRef.current.stop()
+      return
+    }
+
+    const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition
+    if (!Recognition) {
+      setVoiceState("unsupported")
+      return
+    }
+
+    const recognition = new Recognition()
+    recognition.continuous = false
+    recognition.interimResults = false
+    recognition.lang = navigator.language || "en-US"
+    queryBeforeListeningRef.current = query
+    hasCapturedTranscriptRef.current = false
+
+    recognition.onresult = (event) => {
+      if (recognitionRef.current !== recognition) return
+
+      const transcript = Array.from(event.results)
+        .map((result) => result[0]?.transcript ?? "")
+        .join(" ")
+        .trim()
+
+      if (!transcript) return
+
+      const existingQuery = queryBeforeListeningRef.current.trim()
+      setQuery(existingQuery ? `${existingQuery} ${transcript}` : transcript)
+      hasCapturedTranscriptRef.current = true
+      setVoiceState("captured")
+    }
+    recognition.onerror = () => {
+      if (recognitionRef.current !== recognition) return
+
+      recognitionRef.current = null
+      setVoiceState("idle")
+    }
+    recognition.onend = () => {
+      if (recognitionRef.current !== recognition) return
+
+      recognitionRef.current = null
+      setVoiceState(hasCapturedTranscriptRef.current ? "captured" : "idle")
+    }
+
+    recognitionRef.current = recognition
+    setVoiceState("listening")
+
+    try {
+      recognition.start()
+    } catch {
+      recognitionRef.current = null
+      setVoiceState("idle")
+    }
+  }
+
+  const voiceStatus = {
+    idle: "Voice input ready",
+    listening: "Listening...",
+    captured: "Transcript captured",
+    unsupported: "Voice input unsupported in this browser",
+  }[voiceState]
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -115,7 +235,10 @@ export function ChatInputBar({ onSubmit, isLoading = false, onCancel }: ChatInpu
             <input
               type="text"
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              onChange={(e) => {
+                setQuery(e.target.value)
+                if (voiceState === "captured") setVoiceState("idle")
+              }}
               onFocus={() => setIsFocused(true)}
               onBlur={() => setIsFocused(false)}
               disabled={isLoading}
@@ -123,6 +246,22 @@ export function ChatInputBar({ onSubmit, isLoading = false, onCancel }: ChatInpu
               className="flex-1 bg-transparent pl-2 pr-4 py-3 text-sm text-foreground placeholder:text-zinc-600 focus:outline-none disabled:opacity-50"
               aria-label="Follow-up query"
             />
+
+            <button
+              type="button"
+              onClick={handleVoiceInput}
+              disabled={isLoading || voiceState === "unsupported"}
+              className={`mr-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition-all disabled:cursor-not-allowed disabled:opacity-35 ${
+                voiceState === "listening"
+                  ? "border-primary/60 bg-primary/15 text-primary"
+                  : "border-border/50 bg-secondary/70 text-muted-foreground hover:border-primary/30 hover:text-foreground"
+              }`}
+              aria-label={voiceState === "listening" ? "Stop listening" : "Start voice input"}
+              aria-pressed={voiceState === "listening"}
+              title={voiceState === "unsupported" ? "Voice input is unavailable in this browser" : voiceState === "listening" ? "Stop listening" : "Start voice input"}
+            >
+              <Mic className="h-3.5 w-3.5" />
+            </button>
 
             {isLoading ? (
               <button
@@ -146,6 +285,15 @@ export function ChatInputBar({ onSubmit, isLoading = false, onCancel }: ChatInpu
             )}
           </div>
         </div>
+        <p
+          className={`pl-1 text-[11px] ${
+            voiceState === "listening" ? "text-primary" : "text-muted-foreground/60"
+          }`}
+          role="status"
+          aria-live="polite"
+        >
+          {voiceStatus}
+        </p>
       </form>
       <p className="mx-auto mt-2 max-w-3xl text-center text-[11px] text-muted-foreground/50 font-normal select-none">
         SkyQuery may generate incorrect SQL. Always verify results.

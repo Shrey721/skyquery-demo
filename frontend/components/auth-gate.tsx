@@ -1,7 +1,8 @@
 import { motion } from "framer-motion"
 import { Github } from "lucide-react"
+import Link from "next/link"
 
-export function AuthGate({ onLogin }: { onLogin: () => void }) {
+export function AuthGate({ onLogin, message }: { onLogin: () => void; message?: string }) {
   return (
     <motion.div 
       className="relative z-10 flex min-h-screen flex-col items-center justify-center px-4"
@@ -21,6 +22,11 @@ export function AuthGate({ onLogin }: { onLogin: () => void }) {
         <p className="mb-8 text-sm text-muted-foreground">
           Connect your GitHub account to access enterprise analytics.
         </p>
+        {message && (
+          <div className="mb-5 rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+            {message}
+          </div>
+        )}
         
         <button 
           onClick={onLogin}
@@ -39,6 +45,12 @@ export function AuthGate({ onLogin }: { onLogin: () => void }) {
         >
           Use a different GitHub account
         </a>
+        <Link
+          href="/product-tour"
+          className="mt-3 block text-xs font-medium text-primary/80 transition-colors hover:text-primary"
+        >
+          View Product Demo
+        </Link>
       </motion.div>
     </motion.div>
   )

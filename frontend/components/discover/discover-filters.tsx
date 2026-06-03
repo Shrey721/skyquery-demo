@@ -1,6 +1,7 @@
 "use client"
 
-import { MapPin, Plane, Search } from "lucide-react"
+import { MapPin, Mic, Plane, Search } from "lucide-react"
+import { useVoiceInput } from "@/hooks/use-voice-input"
 
 interface DiscoverFiltersProps {
   search: string
@@ -13,6 +14,8 @@ interface DiscoverFiltersProps {
 }
 
 export function DiscoverFilters({ search, onSearchChange, onSearchSubmit, showOnGround, onToggleOnGround, showAirports = false, onToggleAirports }: DiscoverFiltersProps) {
+  const { voiceState, toggleVoiceInput } = useVoiceInput(search, onSearchChange)
+
   return (
     <div className="flex flex-wrap items-center gap-3 border-b border-border/30 bg-background/70 px-4 py-3 backdrop-blur-lg">
       <form
@@ -27,8 +30,26 @@ export function DiscoverFilters({ search, onSearchChange, onSearchSubmit, showOn
           value={search}
           onChange={(event) => onSearchChange(event.target.value)}
           placeholder="Search callsign, ICAO24, country..."
-          className="w-full rounded-lg border border-border/50 bg-secondary/40 py-2 pl-10 pr-3 text-sm outline-none transition focus:border-primary/50"
+          className="w-full rounded-lg border border-border/50 bg-secondary/40 py-2 pl-10 pr-12 text-sm outline-none transition focus:border-primary/50"
         />
+        <button
+          type="button"
+          onClick={toggleVoiceInput}
+          disabled={voiceState === "unsupported"}
+          className={`absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md transition-colors disabled:cursor-not-allowed disabled:opacity-35 ${
+            voiceState === "listening" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+          }`}
+          aria-label={voiceState === "listening" ? "Stop listening" : "Start voice input"}
+          aria-pressed={voiceState === "listening"}
+          title={voiceState === "unsupported" ? "Voice input is unavailable in this browser" : voiceState === "listening" ? "Stop listening" : "Start voice input"}
+        >
+          <Mic className="h-4 w-4" />
+        </button>
+        {voiceState === "listening" && (
+          <span className="absolute -bottom-4 left-10 text-[10px] text-primary" role="status" aria-live="polite">
+            Listening...
+          </span>
+        )}
       </form>
       <span className="flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 text-xs font-medium text-primary">
         <Plane className="h-3.5 w-3.5" /> Live Airspace

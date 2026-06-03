@@ -34,9 +34,15 @@ def login_via_github():
     return RedirectResponse(url)
 
 @router.get("/github/callback")
-async def github_callback(request: Request, code: str, db: Session = Depends(get_db)):
-    if not code:
-        raise HTTPException(status_code=400, detail="No code provided")
+async def github_callback(
+    request: Request,
+    code: Optional[str] = None,
+    error: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    if error or not code:
+        print(f"[Auth Callback] GitHub authorization cancelled or missing code. error={error}")
+        return RedirectResponse(url=f"{settings.FRONTEND_URL}/?auth_error=cancelled")
     
     async with httpx.AsyncClient() as client:
         # Get access token
@@ -53,7 +59,7 @@ async def github_callback(request: Request, code: str, db: Session = Depends(get
         token_data = token_response.json()
         print(f"[Auth Callback] Token response status: {token_response.status_code}")
         access_token = token_data.get("access_token")
-        print(f"[Auth Callback] GitHub token prefix: {access_token[:4]}")
+        print(f"[Auth Callback] GitHub token prefix: {access_token[:4] if access_token else 'missing'}")
         
         if not access_token:
             raise HTTPException(status_code=400, detail="Failed to get access token from GitHub")

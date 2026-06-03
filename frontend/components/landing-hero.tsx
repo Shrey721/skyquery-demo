@@ -1,8 +1,9 @@
 "use client"
 
 import { motion, AnimatePresence } from "framer-motion"
-import { Send, ArrowRight, Paperclip, X } from "lucide-react"
+import { Send, ArrowRight, Mic, Paperclip, X } from "lucide-react"
 import { useState, useEffect, useRef, useCallback } from "react"
+import { useVoiceInput } from "@/hooks/use-voice-input"
 
 
 
@@ -110,6 +111,7 @@ export function LandingHero({
   const [mousePos, setMousePos] = useState({ x: 0.5, y: 0.5 })
   const [chipsVisible, setChipsVisible] = useState(false)
   const [attachedCSV, setAttachedCSV] = useState<{ name: string; headers: string[]; rows: any[] } | null>(null)
+  const { voiceState, toggleVoiceInput } = useVoiceInput(query, setQuery)
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -403,6 +405,20 @@ export function LandingHero({
             </label>
 
             <button
+              type="button"
+              onClick={toggleVoiceInput}
+              disabled={voiceState === "unsupported"}
+              className={`mr-2 flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-35 ${
+                voiceState === "listening" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+              }`}
+              aria-label={voiceState === "listening" ? "Stop listening" : "Start voice input"}
+              aria-pressed={voiceState === "listening"}
+              title={voiceState === "unsupported" ? "Voice input is unavailable in this browser" : voiceState === "listening" ? "Stop listening" : "Start voice input"}
+            >
+              <Mic className="h-4 w-4" />
+            </button>
+
+            <button
               type="submit"
               disabled={!query.trim()}
               className="mr-2 flex h-10 w-10 items-center justify-center rounded-full bg-primary text-primary-foreground transition-all hover:scale-105 hover:brightness-110 disabled:opacity-20 disabled:hover:scale-100"
@@ -411,6 +427,11 @@ export function LandingHero({
               <Send className="h-4 w-4" />
             </button>
           </div>
+          {voiceState === "listening" && (
+            <span className="absolute -bottom-5 left-6 text-[11px] text-primary" role="status" aria-live="polite">
+              Listening...
+            </span>
+          )}
         </div>
       </motion.form>
 

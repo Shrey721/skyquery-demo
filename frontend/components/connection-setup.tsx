@@ -13,6 +13,7 @@ interface ConnectionSetupProps {
   onSaveSelectedSources: (payload: { selected_sources: SelectedSource[] }) => Promise<any>
   onRefreshSelectedContext: () => Promise<any>
   onComplete: () => void
+  onCancel?: () => void
 }
 
 export function ConnectionSetup({
@@ -23,6 +24,7 @@ export function ConnectionSetup({
   onSaveSelectedSources,
   onRefreshSelectedContext,
   onComplete,
+  onCancel,
 }: ConnectionSetupProps) {
   const [host, setHost] = useState(initialConnection?.host || "")
   const [port, setPort] = useState<number | string>(initialConnection?.port || "")
@@ -103,7 +105,11 @@ export function ConnectionSetup({
             <Database className="h-5 w-5 text-[#00a381]" />
             <h2 className="text-lg font-semibold tracking-wide text-foreground">Starburst / Trino Connection</h2>
           </div>
-          <button className="text-muted-foreground hover:text-foreground transition-colors">
+          <button
+            onClick={onCancel}
+            className="text-muted-foreground hover:text-foreground transition-colors"
+            aria-label="Go back"
+          >
             <X className="h-5 w-5" />
           </button>
         </div>
@@ -215,7 +221,13 @@ export function ConnectionSetup({
           </motion.div>
         )}
 
-        <div className="mt-8 flex justify-end gap-4 border-t border-border/20 pt-6">
+        <div className="mt-8 flex flex-wrap justify-end gap-4 border-t border-border/20 pt-6">
+          <button
+            onClick={onCancel}
+            className="mr-auto rounded-lg border border-border/50 bg-transparent px-5 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary/40 hover:text-foreground focus:outline-none"
+          >
+            Back
+          </button>
           <button
             onClick={handleTest}
             disabled={status === "testing"}
