@@ -109,8 +109,10 @@ export async function logoutUser() {
   return fetchWithHandler(`${API_BASE_URL}/auth/logout`, { method: "POST" });
 }
 
-export function getGithubLoginUrl() {
-  return `${API_BASE_URL}/auth/github/login`;
+export function getGithubLoginUrl(returnTo?: string) {
+  const url = new URL(`${API_BASE_URL}/auth/github/login`);
+  if (returnTo) url.searchParams.set("return_to", returnTo);
+  return url.toString();
 }
 
 // --- Account-scoped chat history API ---

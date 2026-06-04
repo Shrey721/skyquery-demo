@@ -21,10 +21,8 @@ export function Footer() {
               <Image
                 src="https://hebbkx1anhila5yf.public.blob.vercel-storage.com/image-X7ohEq5zMv1hCY6v7Br2Mp0TAU6yhF.png"
                 alt="SkyQuery Logo"
-                width={140}
-                height={38}
-                className="h-10 w-auto"
-                style={{ width: "auto" }}
+                width={147}
+                height={40}
               />
             </a>
             <p className="text-sm text-muted-foreground max-w-xs mb-6 leading-relaxed">

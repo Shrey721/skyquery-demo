@@ -18,6 +18,13 @@ import { AuthGate } from "@/components/auth-gate"
 import { ConnectionSetup } from "@/components/connection-setup"
 import type { MockResponse } from "@/lib/mock-data"
 import { frontendConfig } from "@/lib/config"
+import {
+  clearConnectionSessionStorage,
+  getActiveConnectionSessionId,
+  getStoredAuthSessionId,
+  markActiveConnectionForSession,
+} from "@/lib/session-cleanup"
+import { cacheAuthUser, clearAuthSession } from "@/lib/auth-session"
 
 type QueryContext = {
   action_type?: string
@@ -185,10 +192,11 @@ export default function SkyQueryApp() {
   const [avatarMenuOpen, setAvatarMenuOpen] = useState(false)
   const [isOnboardingCompleting, setIsOnboardingCompleting] = useState(false)
   const [historyHydrated, setHistoryHydrated] = useState(false)
+  const [authSessionId, setAuthSessionId] = useState<string | null>(null)
+  const [activeConnectionSessionId, setActiveConnectionSessionId] = useState<string | null>(null)
   const lastSavedHistoryKey = useRef<string>("")
   const connectionBackArmedRef = useRef(false)
   const phaseRef = useRef<AppPhase>("loading")
-  const connectionRef = useRef<any>(null)
   const activeQueryRef = useRef<{
     requestId: string
     sessionId: string
@@ -198,7 +206,7 @@ export default function SkyQueryApp() {
   } | null>(null)
 
   const currentSession = sessions.find((s) => s.id === currentSessionId) || null
-  const hasSavedActiveTrinoConnection = Boolean(connection?.is_active)
+  const hasSavedActiveTrinoConnection = Boolean(connection?.is_active && authSessionId && activeConnectionSessionId === authSessionId)
   const connectionCatalog = connection?.catalog || connection?.default_catalog || ""
   const connectionSchema = connection?.schema_name || connection?.default_schema || ""
   const activeCatalogSchema = [connectionCatalog, connectionSchema].filter(Boolean).join(".")
@@ -245,8 +253,7 @@ export default function SkyQueryApp() {
 
   useEffect(() => {
     phaseRef.current = phase
-    connectionRef.current = connection
-  }, [phase, connection])
+  }, [phase])
 
   useEffect(() => {
     return () => {
@@ -277,8 +284,7 @@ export default function SkyQueryApp() {
     }
 
     const handlePopState = () => {
-      const latestConnection = connectionRef.current
-      if (phaseRef.current === "connection" && !latestConnection?.is_active) {
+      if (phaseRef.current === "connection" && !hasSavedActiveTrinoConnection) {
         sessionStorage.removeItem("skyquery_connection_back_to")
         window.location.replace(backTo)
       }
@@ -412,7 +418,10 @@ export default function SkyQueryApp() {
     const urlSessionId = urlParams.get("session_id");
     if (urlSessionId) {
       console.log("[Auth Bootstrap] Captured session_id redirect:", urlSessionId);
+      clearConnectionSessionStorage();
       localStorage.setItem("skyquery_session_id", urlSessionId);
+      setAuthSessionId(urlSessionId);
+      setActiveConnectionSessionId(null);
     }
 
     const authReturnTo = sessionStorage.getItem("skyquery_auth_return_to");
@@ -433,17 +442,29 @@ export default function SkyQueryApp() {
       console.log("[Auth Bootstrap] Active localStorage session_id:", localStorage.getItem("skyquery_session_id"));
       
       try {
+        const currentStoredSessionId = getStoredAuthSessionId();
+        const storedConnectionSessionId = getActiveConnectionSessionId();
+        setAuthSessionId(currentStoredSessionId);
+        setActiveConnectionSessionId(storedConnectionSessionId);
+
         const u = await getCurrentUser();
         console.log("[Auth Bootstrap] auth/me response:", u);
         
         if (!u) {
           console.log("[Auth Bootstrap] Unauthenticated session. Transitioning to AuthGate.");
+          clearConnectionSessionStorage();
+          clearAuthSession();
+          setAuthSessionId(null);
+          setActiveConnectionSessionId(null);
+          setConnection(null);
+          setSchemaMetadata(null);
           setPhase("auth");
           return;
         }
         
         console.log("[Auth Bootstrap] Session restored successfully for:", u.username);
         setUser(u);
+        cacheAuthUser(u);
 
         // Restore user sessions from backend first, with local cache as optimistic fallback/migration source.
         const localRestored = loadSessions(getUserHistoryStorageKey(u), u.username);
@@ -506,17 +527,24 @@ export default function SkyQueryApp() {
         const justAuthorized = sessionStorage.getItem("just_authorized_github") === "true";
 
         const conn = await getActiveConnection();
-        if (conn && conn.is_active) {
+        const connectionBelongsToCurrentSession = Boolean(
+          conn?.is_active && currentStoredSessionId && storedConnectionSessionId === currentStoredSessionId
+        );
+
+        if (connectionBelongsToCurrentSession) {
           setConnection(conn);
+        } else {
+          setConnection(null);
+          setSchemaMetadata(null);
         }
 
-        const meta = await getMetadataSchema();
-        if (meta && meta.tables && meta.tables.length > 0) {
+        const meta = connectionBelongsToCurrentSession ? await getMetadataSchema() : null;
+        if (connectionBelongsToCurrentSession && meta && meta.tables && meta.tables.length > 0) {
           setSchemaMetadata(meta);
         }
 
-        // Force connection setup if no active connection exists, schema is missing, OR they just logged in/authorized fresh!
-        if (!conn || !conn.is_active || !meta || !meta.tables || meta.tables.length === 0 || justAuthorized) {
+        // Force connection setup unless the active connection was saved during this auth session.
+        if (!connectionBelongsToCurrentSession || !meta || !meta.tables || meta.tables.length === 0 || justAuthorized) {
           setPhase("connection");
           return;
         }
@@ -557,13 +585,16 @@ export default function SkyQueryApp() {
 
   const handleLogout = async () => {
     await logoutUser();
-    localStorage.removeItem("skyquery_session_id");
+    clearConnectionSessionStorage();
+    clearAuthSession();
     if (user) {
       clearSessions(getUserHistoryStorageKey(user), user.username);
     }
     setUser(null);
     setConnection(null);
     setSchemaMetadata(null);
+    setAuthSessionId(null);
+    setActiveConnectionSessionId(null);
     setSessions([]);
     setCurrentSessionId(null);
     setHistoryHydrated(false);
@@ -572,6 +603,12 @@ export default function SkyQueryApp() {
   };
 
   const handleRefreshMetadata = async () => {
+    if (!hasSavedActiveTrinoConnection) {
+      setConnection(null)
+      setSchemaMetadata(null)
+      setPhase("connection")
+      return
+    }
     setIsRefreshingMetadata(true)
     try {
       const meta = await discoverMetadata();
@@ -1026,8 +1063,10 @@ export default function SkyQueryApp() {
         setPhase("auth")
         return
       }
-      if (!connection) {
+      if (!hasSavedActiveTrinoConnection) {
         alert("Connect Starburst / Trino")
+        setConnection(null)
+        setSchemaMetadata(null)
         setPhase("connection")
         return
       }
@@ -1056,7 +1095,7 @@ export default function SkyQueryApp() {
         addMessageToSession(currentSessionId, query, attachedCSV)
       }
     },
-    [phase, currentSessionId, addMessageToSession, user, connection, schemaMetadata]
+    [phase, currentSessionId, addMessageToSession, user, hasSavedActiveTrinoConnection, schemaMetadata]
   )
 
   const handleThinkingComplete = useCallback(() => {
@@ -1191,6 +1230,16 @@ export default function SkyQueryApp() {
                   setPhase("connection");
                   return;
                 }
+                const sessionId = authSessionId || getStoredAuthSessionId();
+                const markedConnectionSessionId = markActiveConnectionForSession(sessionId);
+                if (!markedConnectionSessionId) {
+                  alert("Your GitHub session is missing. Please sign in again before connecting a database.");
+                  setIsOnboardingCompleting(false);
+                  setPhase("auth");
+                  return;
+                }
+                setAuthSessionId(markedConnectionSessionId);
+                setActiveConnectionSessionId(markedConnectionSessionId);
                 setConnection(conn);
 
                 // Verify selected schema metadata tables have been fetched successfully
@@ -1351,8 +1400,8 @@ export default function SkyQueryApp() {
               onNewChat={handleNewChat}
               user={user}
               onLogout={handleLogout}
-              connectionStatus={connection ? "connected" : "disconnected"}
-              activeCatalogSchema={connection ? activeCatalogSchema : ""}
+              connectionStatus={hasSavedActiveTrinoConnection ? "connected" : "disconnected"}
+              activeCatalogSchema={hasSavedActiveTrinoConnection ? activeCatalogSchema : ""}
               schemaTables={schemaMetadata?.tables || []}
               onRefreshMetadata={handleRefreshMetadata}
               isRefreshingMetadata={isRefreshingMetadata}

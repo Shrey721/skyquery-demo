@@ -40,7 +40,7 @@ export function TopNavigation() {
       </nav>
 
       {/* Right Actions */}
-      <div className="flex items-center gap-2">
+      <div className="nav-controls-ready flex w-[190px] shrink-0 items-center justify-end gap-3">
         <button className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-all">
           <Moon className="w-4 h-4" />
         </button>

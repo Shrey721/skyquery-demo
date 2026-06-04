@@ -19,16 +19,25 @@ class CopilotTestRequest(BaseModel):
     prompt: str
     model: Optional[str] = None
 
+def _safe_frontend_return_path(return_to: Optional[str]) -> str:
+    if return_to and return_to.startswith("/") and not return_to.startswith("//"):
+        return return_to
+    return "/"
+
 @router.get("/github/login")
-def login_via_github():
+def login_via_github(return_to: Optional[str] = None):
     if not settings.GITHUB_CLIENT_ID:
         raise HTTPException(status_code=500, detail="GitHub Client ID not configured")
+
+    state = str(uuid.uuid4())
+    redis_client.setex(f"oauth_return_to:{state}", 600, _safe_frontend_return_path(return_to))
     
     params = {
         "client_id": settings.GITHUB_CLIENT_ID,
         "redirect_uri": settings.GITHUB_CALLBACK_URL,
         "scope": "user:email",
         "prompt": "consent",
+        "state": state,
     }
     url = f"{settings.GITHUB_AUTHORIZE_URL}?{urlencode(params)}"
     return RedirectResponse(url)
@@ -38,11 +47,20 @@ async def github_callback(
     request: Request,
     code: Optional[str] = None,
     error: Optional[str] = None,
+    state: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
+    return_path = "/"
+    if state:
+        cached_return_path = redis_client.get(f"oauth_return_to:{state}")
+        redis_client.delete(f"oauth_return_to:{state}")
+        if cached_return_path:
+            decoded_return_path = cached_return_path.decode() if isinstance(cached_return_path, bytes) else str(cached_return_path)
+            return_path = _safe_frontend_return_path(decoded_return_path)
+
     if error or not code:
         print(f"[Auth Callback] GitHub authorization cancelled or missing code. error={error}")
-        return RedirectResponse(url=f"{settings.FRONTEND_URL}/?auth_error=cancelled")
+        return RedirectResponse(url=f"{settings.FRONTEND_URL}{return_path}?auth_error=cancelled")
     
     async with httpx.AsyncClient() as client:
         # Get access token
@@ -133,7 +151,7 @@ async def github_callback(
         redis_client.setex(f"session_user:{session_id}", 86400 * 7, str(user.id))
         
         # Redirect to frontend with the session_id query parameter
-        frontend_redirect_url = f"{settings.FRONTEND_URL}/?session_id={session_id}"
+        frontend_redirect_url = f"{settings.FRONTEND_URL}{return_path}?session_id={session_id}"
         print(f"[Auth Callback] Creating session for user {user.username} and redirecting to {frontend_redirect_url}")
         return RedirectResponse(url=frontend_redirect_url)
 

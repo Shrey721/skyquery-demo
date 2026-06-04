@@ -97,10 +97,9 @@ export function FinalCTA({ onStartChat }: { onStartChat?: () => void }) {
                 <Image
                   src="https://hebbkx1anhila5yf.public.blob.vercel-storage.com/image-X7ohEq5zMv1hCY6v7Br2Mp0TAU6yhF.png"
                   alt="SkyQuery"
-                  width={70}
-                  height={70}
-                  className="h-12 w-auto object-contain brightness-0 invert"
-                  style={{ width: "auto" }}
+                  width={48}
+                  height={48}
+                  className="object-contain brightness-0 invert"
                 />
               </div>
             </div>

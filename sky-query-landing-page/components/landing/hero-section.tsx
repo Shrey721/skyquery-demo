@@ -11,6 +11,8 @@ const fadeInUp = {
   visible: { opacity: 1, y: 0 },
 };
 
+const DEMO_ANIMATION_START_DELAY = 1800;
+
 function PremiumBackground() {
   const shouldReduceMotion = useReducedMotion();
 
@@ -33,6 +35,7 @@ function PremiumBackground() {
         style={{
           background: "radial-gradient(circle, oklch(0.2 0.1 200 / 0.4) 0%, transparent 70%)",
         }}
+        initial={{ x: 0, y: 0, opacity: 0.3 }}
         animate={{
           x: [0, 60, 0],
           y: [0, 40, 0],
@@ -47,6 +50,7 @@ function PremiumBackground() {
         style={{
           background: "radial-gradient(circle, oklch(0.15 0.08 210 / 0.35) 0%, transparent 70%)",
         }}
+        initial={{ x: 0, y: 0, opacity: 0.25 }}
         animate={{
           x: [0, -50, 0],
           y: [0, 60, 0],
@@ -61,6 +65,7 @@ function PremiumBackground() {
         style={{
           background: "radial-gradient(ellipse, oklch(0.12 0.06 200 / 0.25) 0%, transparent 70%)",
         }}
+        initial={{ x: 0, opacity: 0.2 }}
         animate={{
           x: [0, 40, 0],
           opacity: [0.2, 0.35, 0.2],
@@ -72,16 +77,19 @@ function PremiumBackground() {
       <div className="absolute left-1/2 top-[45%] -translate-x-1/2 -translate-y-1/2 h-[700px] w-[700px]">
         <motion.div
           className="absolute inset-0 rounded-full border border-primary/10"
+          initial={{ scale: 0.5, opacity: 0 }}
           animate={{ scale: [0.5, 1.1], opacity: [0.25, 0] }}
           transition={{ duration: 5, repeat: Infinity, ease: "easeOut" }}
         />
         <motion.div
           className="absolute inset-0 rounded-full border border-primary/8"
+          initial={{ scale: 0.4, opacity: 0 }}
           animate={{ scale: [0.4, 1], opacity: [0.2, 0] }}
           transition={{ duration: 5, repeat: Infinity, ease: "easeOut", delay: 1.8 }}
         />
         <motion.div
           className="absolute inset-0 rounded-full border border-primary/6"
+          initial={{ scale: 0.3, opacity: 0 }}
           animate={{ scale: [0.3, 0.9], opacity: [0.15, 0] }}
           transition={{ duration: 5, repeat: Infinity, ease: "easeOut", delay: 3.2 }}
         />
@@ -89,11 +97,12 @@ function PremiumBackground() {
 
       {/* Subtle grid with perspective */}
       <div
-        className="absolute inset-0 opacity-[0.025]"
+        className="absolute inset-0"
         style={{
+          opacity: 0.006,
           backgroundImage: `
-            linear-gradient(oklch(0.6 0.08 200) 1px, transparent 1px),
-            linear-gradient(90deg, oklch(0.6 0.08 200) 1px, transparent 1px)
+            linear-gradient(oklch(0.6 0.08 200 / 0.35) 1px, transparent 1px),
+            linear-gradient(90deg, oklch(0.6 0.08 200 / 0.35) 1px, transparent 1px)
           `,
           backgroundSize: '80px 80px',
         }}
@@ -149,6 +158,7 @@ function PremiumBackground() {
             width: node.size,
             height: node.size,
           }}
+          initial={{ opacity: 0.25, scale: 1 }}
           animate={{
             opacity: [0.25, 0.6, 0.25],
             scale: [1, 1.3, 1],
@@ -171,6 +181,7 @@ function PremiumBackground() {
             left: `${15 + Math.random() * 70}%`,
             top: `${15 + Math.random() * 70}%`,
           }}
+          initial={{ y: 0, opacity: 0.15 }}
           animate={{
             y: [0, -25, 0],
             opacity: [0.15, 0.4, 0.15],
@@ -216,13 +227,13 @@ function VoiceInteractionDemo() {
     }
 
     const timeline = [
-      { phase: "cursor" as const, delay: 1000 },
-      { phase: "listening" as const, delay: 2200 },
-      { phase: "speaking" as const, delay: 4200 },
-      { phase: "typing" as const, delay: 6000 },
-      { phase: "sending" as const, delay: 8200 },
-      { phase: "analyzing" as const, delay: 8800 },
-      { phase: "results" as const, delay: 10500 },
+      { phase: "cursor" as const, delay: DEMO_ANIMATION_START_DELAY + 1000 },
+      { phase: "listening" as const, delay: DEMO_ANIMATION_START_DELAY + 2200 },
+      { phase: "speaking" as const, delay: DEMO_ANIMATION_START_DELAY + 4200 },
+      { phase: "typing" as const, delay: DEMO_ANIMATION_START_DELAY + 6000 },
+      { phase: "sending" as const, delay: DEMO_ANIMATION_START_DELAY + 8200 },
+      { phase: "analyzing" as const, delay: DEMO_ANIMATION_START_DELAY + 8800 },
+      { phase: "results" as const, delay: DEMO_ANIMATION_START_DELAY + 10500 },
     ];
 
     const timers: NodeJS.Timeout[] = [];
@@ -235,7 +246,7 @@ function VoiceInteractionDemo() {
     timers.push(
       setTimeout(() => {
         setCursorPos({ x: 355, y: 52 });
-      }, 1200)
+      }, DEMO_ANIMATION_START_DELAY + 1200)
     );
 
     // Type text animation
@@ -251,7 +262,7 @@ function VoiceInteractionDemo() {
           }
         }, 55);
         timers.push(typeInterval as unknown as NodeJS.Timeout);
-      }, 6000)
+      }, DEMO_ANIMATION_START_DELAY + 6000)
     );
 
     // Count up metrics animation
@@ -273,11 +284,11 @@ function VoiceInteractionDemo() {
           }
         }, 30);
         timers.push(countInterval as unknown as NodeJS.Timeout);
-      }, 10800)
+      }, DEMO_ANIMATION_START_DELAY + 10800)
     );
 
     // Reset and loop
-    timers.push(setTimeout(resetAnimation, 18000));
+    timers.push(setTimeout(resetAnimation, DEMO_ANIMATION_START_DELAY + 18000));
 
     return () => timers.forEach(clearTimeout);
   }, [animationKey, shouldReduceMotion, resetAnimation]);
@@ -289,7 +300,7 @@ function VoiceInteractionDemo() {
     <motion.div
       key={animationKey}
       variants={fadeInUp}
-      initial="hidden"
+      initial={false}
       animate="visible"
       transition={{ duration: 0.6, delay: 0.3 }}
       className="relative mx-auto mt-12 max-w-3xl"
@@ -300,6 +311,7 @@ function VoiceInteractionDemo() {
         style={{
           background: "radial-gradient(ellipse at center, oklch(0.2 0.1 200 / 0.25) 0%, transparent 70%)",
         }}
+        initial={{ opacity: 0.4 }}
         animate={{ opacity: [0.4, 0.6, 0.4] }}
         transition={{ duration: 5, repeat: Infinity, ease: "easeInOut" }}
       />
@@ -323,8 +335,9 @@ function VoiceInteractionDemo() {
             {typedText || (
               <span className="text-muted-foreground">Ask anything about your aviation data...</span>
             )}
-            {(phase === "typing" || phase === "idle") && (
+            {phase === "typing" && (
               <motion.span
+                initial={{ opacity: 1 }}
                 animate={{ opacity: [1, 0] }}
                 transition={{ duration: 0.5, repeat: Infinity }}
                 className="inline-block w-0.5 h-4 bg-primary ml-0.5 align-middle"
@@ -535,7 +548,7 @@ export function HeroSection() {
 
       <div className="relative mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
         <motion.div
-          initial="hidden"
+          initial={false}
           animate="visible"
           variants={{
             visible: { transition: { staggerChildren: 0.1 } },

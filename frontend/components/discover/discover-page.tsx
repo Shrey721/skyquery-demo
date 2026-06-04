@@ -16,9 +16,25 @@ import { boundsAroundLocation, resolveLocationQuery } from "@/lib/location-searc
 import { buildWeatherImpactAssessment, parseDiscoverQuery, requestedWeatherMetricSummary, shouldMarkFlightsImpacted, weatherImpactSummary } from "@/lib/discover-query-intent.mjs"
 import { fetchAirportsInBounds, fetchNearbyAirports, type NearbyAirport } from "@/lib/nearby-airports-api"
 import { fetchDiscoverEnterprise, fetchDiscoverEnterpriseCandidates, type DiscoverEnterpriseResponse } from "@/lib/discover-enterprise-api"
-import { getCurrentUser, logoutUser } from "@/lib/api"
+import { logoutUser } from "@/lib/api"
+import {
+  clearAuthSession,
+  getCachedAuthUser,
+  refreshAuthSession,
+  subscribeToAuthState,
+} from "@/lib/auth-session"
+import { clearConnectionSessionStorage } from "@/lib/session-cleanup"
 
 const AviationMap = dynamic(() => import("./aviation-map").then((module) => module.AviationMap), { ssr: false })
+
+function NavControlsPlaceholder() {
+  return (
+    <div aria-hidden="true" className="flex items-center gap-3">
+      <div className="h-7 w-7 rounded-md border border-border/20 bg-secondary/25" />
+      <div className="h-7 w-7 rounded-full border border-border/20 bg-secondary/25" />
+    </div>
+  )
+}
 
 export function DiscoverPage() {
   const [bounds, setBounds] = useState<MapBounds | null>(null)
@@ -52,6 +68,7 @@ export function DiscoverPage() {
   const [sidebarWidth, setSidebarWidth] = useState(360)
   const [resizingSidebar, setResizingSidebar] = useState(false)
   const [user, setUser] = useState<any>(null)
+  const [authReady, setAuthReady] = useState(false)
   const [avatarMenuOpen, setAvatarMenuOpen] = useState(false)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const hasLoadedInitialBoundsRef = useRef(false)
@@ -251,6 +268,10 @@ export function DiscoverPage() {
         }
         let enterpriseCandidates: DiscoverEnterpriseResponse | null = null
         let location = null
+        const enterpriseFallbackQueryPlan = {
+          ...intent.queryPlan,
+          contextSources: intent.queryPlan.contextSources.filter((source): source is string => Boolean(source)),
+        }
         if (intent.enterpriseFirst) {
           setEnterpriseLoading(true)
           try {
@@ -281,7 +302,7 @@ export function DiscoverPage() {
           } catch {
             if (enterpriseRequestId !== enterpriseRequestIdRef.current) return
             const unavailable = {
-              queryPlan: intent.queryPlan,
+              queryPlan: enterpriseFallbackQueryPlan,
               available: false,
               message: "Enterprise data is unavailable. This query requires Trino performance data.",
               sourceTables: [],
@@ -347,7 +368,7 @@ export function DiscoverPage() {
           } catch {
             if (enterpriseRequestId !== enterpriseRequestIdRef.current) return
             setEnterprise({
-              queryPlan: intent.queryPlan,
+              queryPlan: enterpriseFallbackQueryPlan,
               available: false,
               message: "Enterprise data is unavailable. Live public feeds are still available, but delay/performance metrics require Trino.",
               sourceTables: [],
@@ -420,12 +441,34 @@ export function DiscoverPage() {
   }, [loadNearbyAirports, selected])
 
   useEffect(() => {
-    getCurrentUser().then(setUser)
+    let cancelled = false
+    const cachedUser = getCachedAuthUser()
+    if (cachedUser) setUser(cachedUser)
+
+    refreshAuthSession().then((nextUser) => {
+      if (cancelled) return
+      setUser(nextUser)
+      setAuthReady(true)
+    }).catch(() => {
+      if (!cancelled) setAuthReady(true)
+    })
+
+    const unsubscribeAuthState = subscribeToAuthState((nextUser) => {
+      if (cancelled) return
+      setUser(nextUser)
+      setAuthReady(true)
+    })
+
+    return () => {
+      cancelled = true
+      unsubscribeAuthState()
+    }
   }, [])
 
   const handleLogout = useCallback(async () => {
     await logoutUser()
-    localStorage.removeItem("skyquery_session_id")
+    clearConnectionSessionStorage()
+    clearAuthSession()
     window.location.href = "/"
   }, [])
 
@@ -459,11 +502,11 @@ export function DiscoverPage() {
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
-      <header className="relative z-[1000] flex items-center justify-between border-b border-border/40 bg-background/80 px-4 py-3 backdrop-blur-xl">
+      <header className="relative z-[1000] flex items-center justify-between border-b border-border/40 bg-background/80 px-4 py-3 backdrop-blur-xl transition-all duration-300">
         <Link href="/" aria-label="SkyQuery home" className="rounded-lg transition-opacity hover:opacity-80">
           <SkyQueryLogo size="sm" />
         </Link>
-        <nav className="flex items-center rounded-lg border border-border/30 bg-secondary/20 p-1">
+        <nav className="absolute left-1/2 flex -translate-x-1/2 items-center rounded-lg border border-border/30 bg-secondary/20 p-1">
           <Link href="/" className="flex items-center gap-2 rounded-md px-4 py-2 text-sm text-muted-foreground hover:text-foreground">
             <MessageSquare className="h-4 w-4" /> Chat
           </Link>
@@ -474,9 +517,13 @@ export function DiscoverPage() {
             <Compass className="h-4 w-4" /> Product Tour
           </Link>
         </nav>
-        <div className="flex items-center gap-3">
-          <ThemeToggle />
-          {user && (
+        <div className="flex w-[190px] shrink-0 items-center justify-end gap-3">
+          {!authReady ? (
+            <NavControlsPlaceholder />
+          ) : (
+            <div className="nav-controls-ready flex items-center gap-3">
+              <ThemeToggle />
+              {user && (
             <div className="relative">
               <button
                 onClick={() => setAvatarMenuOpen((open) => !open)}
@@ -503,6 +550,8 @@ export function DiscoverPage() {
                     </button>
                   </div>
                 </>
+              )}
+            </div>
               )}
             </div>
           )}

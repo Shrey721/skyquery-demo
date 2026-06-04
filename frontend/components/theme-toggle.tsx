@@ -25,7 +25,7 @@ export function ThemeToggle() {
 
   if (!mounted) {
     return (
-      <div className="h-7 w-7 rounded-md bg-secondary/40" aria-hidden />
+      <div className="h-7 w-7 rounded-md border border-border/20 bg-secondary/25" aria-hidden />
     )
   }
 
@@ -39,7 +39,7 @@ export function ThemeToggle() {
   const Icon = current.icon
 
   return (
-    <div ref={ref} className="relative z-[1100]">
+    <div ref={ref} className="nav-controls-ready relative z-[1100]">
       <button
         onClick={() => setOpen(!open)}
         className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
