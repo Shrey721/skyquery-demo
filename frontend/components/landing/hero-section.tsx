@@ -309,7 +309,7 @@ function VoiceInteractionDemo() {
       initial={false}
       animate="visible"
       transition={{ duration: 0.6, delay: 0.3 }}
-      className="relative mx-auto mt-12 max-w-3xl"
+      className="relative mx-auto mt-8 max-w-3xl"
     >
       {/* Soft ambient glow behind panel */}
       <motion.div
@@ -549,7 +549,7 @@ function VoiceInteractionDemo() {
 
 export function HeroSection({ onStartChat }: { onStartChat?: () => void }) {
   return (
-    <section className="relative min-h-screen overflow-hidden pt-16 pb-20 sm:pt-[4.75rem] lg:pt-20">
+    <section className="relative min-h-[85vh] overflow-hidden pt-12 pb-12 sm:pt-16 sm:pb-16 lg:pt-20 lg:pb-20">
       <PremiumBackground />
 
       <div className="relative mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
@@ -585,7 +585,7 @@ export function HeroSection({ onStartChat }: { onStartChat?: () => void }) {
           {/* Subheadline */}
           <motion.p
             variants={fadeInUp}
-            className="mx-auto mt-5 max-w-2xl text-pretty text-base text-muted-foreground sm:text-lg leading-relaxed"
+            className="mx-auto mt-4 max-w-2xl text-pretty text-base text-muted-foreground sm:text-lg leading-relaxed"
           >
             Connect enterprise aviation systems with live airspace, weather intelligence, and natural language analytics. Built for airport operations teams, airlines, and aviation analysts.
           </motion.p>
@@ -593,7 +593,7 @@ export function HeroSection({ onStartChat }: { onStartChat?: () => void }) {
           {/* CTA Buttons */}
           <motion.div
             variants={fadeInUp}
-            className="mt-8 flex flex-col items-center justify-center gap-4 sm:flex-row"
+            className="mt-6 flex flex-col items-center justify-center gap-4 sm:flex-row"
           >
             <Button
               size="lg"

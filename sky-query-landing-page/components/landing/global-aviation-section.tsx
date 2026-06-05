@@ -2,6 +2,8 @@
 
 import dynamic from "next/dynamic";
 import { motion } from "framer-motion";
+import { Button } from "@/components/ui/button";
+import { Search } from "lucide-react";
 
 const PremiumAviationGlobe = dynamic(
   () => import("./premium-aviation-globe").then((module) => module.PremiumAviationGlobe),
@@ -16,7 +18,19 @@ const PremiumAviationGlobe = dynamic(
   }
 );
 
-export function GlobalAviationSection() {
+interface GlobalAviationSectionProps {
+  onOpenDiscover?: () => void;
+}
+
+export function GlobalAviationSection({ onOpenDiscover }: GlobalAviationSectionProps) {
+  const handleDiscoverClick = () => {
+    if (onOpenDiscover) {
+      onOpenDiscover();
+    } else {
+      window.location.href = "/discover";
+    }
+  };
+
   return (
     <section className="relative overflow-hidden py-28" id="airspace">
       <div className="absolute inset-0">
@@ -42,29 +56,46 @@ export function GlobalAviationSection() {
         <PremiumAviationGlobe />
 
         <motion.div
-          className="mt-14 flex flex-wrap justify-center gap-6"
+          className="mt-14 flex flex-col items-center gap-8"
           initial={{ opacity: 0, y: 20 }}
           transition={{ delay: 0.2 }}
           viewport={{ once: true }}
           whileInView={{ opacity: 1, y: 0 }}
         >
-          {[
-            { label: "Global Airports", value: "15,000+" },
-            { label: "Daily Flights", value: "100K+" },
-            { label: "Data Points", value: "1B+" },
-          ].map((stat, index) => (
-            <motion.div
-              className="glass rounded-xl border border-border/30 px-8 py-4 text-center"
-              initial={{ opacity: 0, y: 20 }}
-              key={stat.label}
-              transition={{ delay: 0.3 + index * 0.08 }}
-              viewport={{ once: true }}
-              whileInView={{ opacity: 1, y: 0 }}
+          <div className="flex flex-wrap justify-center gap-6">
+            {[
+              { label: "Global Airports", value: "15,000+" },
+              { label: "Daily Flights", value: "100K+" },
+            ].map((stat, index) => (
+              <motion.div
+                className="glass rounded-xl border border-border/30 px-8 py-4 text-center"
+                initial={{ opacity: 0, y: 20 }}
+                key={stat.label}
+                transition={{ delay: 0.3 + index * 0.08 }}
+                viewport={{ once: true }}
+                whileInView={{ opacity: 1, y: 0 }}
+              >
+                <p className="tabular-nums text-2xl font-bold text-primary">{stat.value}</p>
+                <p className="mt-1 text-xs text-muted-foreground">{stat.label}</p>
+              </motion.div>
+            ))}
+          </div>
+
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            whileInView={{ opacity: 1, scale: 1 }}
+            transition={{ delay: 0.5 }}
+            viewport={{ once: true }}
+          >
+            <Button
+              size="lg"
+              onClick={handleDiscoverClick}
+              className="group bg-gradient-to-r from-primary to-[oklch(0.65_0.12_210)] text-white border-0 px-8 glow-cyan hover:opacity-90 transition-opacity"
             >
-              <p className="tabular-nums text-2xl font-bold text-primary">{stat.value}</p>
-              <p className="mt-1 text-xs text-muted-foreground">{stat.label}</p>
-            </motion.div>
-          ))}
+              <Search className="mr-2 h-4 w-4" />
+              Open Discover
+            </Button>
+          </motion.div>
         </motion.div>
       </div>
     </section>

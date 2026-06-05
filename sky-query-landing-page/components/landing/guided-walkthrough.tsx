@@ -95,7 +95,7 @@ function Step1Demo() {
               className="relative"
             >
               <div
-                className={`flex items-center gap-3 rounded-xl px-4 py-3 transition-all duration-500 ${
+                className={`relative z-10 flex items-center gap-3 rounded-xl px-4 py-3 transition-all duration-500 ${
                   isConnected
                     ? "bg-[#1a2e3d] border border-cyan-500/40"
                     : "bg-[#0d1a24] border border-white/5"
@@ -142,10 +142,11 @@ function Step1Demo() {
                   initial={{ scaleX: 0 }}
                   animate={{ scaleX: 1 }}
                   transition={{ duration: 0.4, delay: 0.2 }}
-                  className="absolute right-0 top-1/2 h-0.5 origin-left"
+                  className="absolute left-[calc(100%-8px)] top-1/2 h-[1.5px] -translate-y-1/2 origin-left z-0 pointer-events-none"
                   style={{
-                    width: `${120 - index * 8}px`,
+                    width: `${140 - index * 10}px`,
                     background: `linear-gradient(to right, ${source.color}, transparent)`,
+                    opacity: 0.7,
                   }}
                 />
               )}
@@ -216,7 +217,7 @@ function Step1Demo() {
           {[...Array(8)].map((_, i) => (
             <motion.div
               key={i}
-              className="absolute h-1.5 w-1.5 rounded-full bg-cyan-400"
+              className="absolute h-1.5 w-1.5 rounded-full bg-cyan-400 z-[5]"
               initial={{ left: "35%", top: `${25 + i * 8}%`, opacity: 0 }}
               animate={{
                 left: ["35%", "70%"],

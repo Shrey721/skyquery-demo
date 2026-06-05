@@ -15,6 +15,20 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
+import dynamic from "next/dynamic";
+
+const AtlantaLiveMap = dynamic(
+  () => import("./atlanta-live-map").then((module) => module.AtlantaLiveMap),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="absolute inset-0 flex items-center justify-center bg-[#070b0e]">
+        <div className="h-6 w-6 rounded-full border-2 border-primary/30 border-t-primary animate-spin" />
+      </div>
+    ),
+  }
+);
+
 const suggestedQuestions = [
   {
     text: "Show ATL airport performance",
@@ -180,39 +194,23 @@ const demoResponses: Record<string, React.ReactNode> = {
   ),
   "Display live airspace near Atlanta": (
     <div className="space-y-4">
-      <div className="relative aspect-video rounded-xl bg-gradient-to-br from-muted/50 to-muted/30 overflow-hidden border border-border/20">
-        {/* Grid overlay */}
-        <div className="absolute inset-0 radar-grid opacity-50" />
+      <div className="relative aspect-video rounded-xl overflow-hidden border border-border/20">
+        {/* Leaflet Live Map */}
+        <AtlantaLiveMap />
 
-        {/* Airport marker */}
-        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
-          <div className="relative">
-            <div className="absolute inset-0 rounded-full bg-primary animate-ping opacity-30" />
-            <div className="relative flex h-8 w-8 items-center justify-center rounded-full bg-primary glow-cyan">
-              <MapPin className="h-4 w-4 text-white" />
-            </div>
-          </div>
-          <span className="absolute -bottom-6 left-1/2 -translate-x-1/2 text-xs font-semibold">ATL</span>
+        {/* Live Airspace Badge - Top Left */}
+        <div className="absolute top-3 left-3 z-[1010] flex items-center gap-1.5 rounded-full bg-background/80 backdrop-blur-sm px-3 py-1 border border-border/30 text-[10px] font-semibold text-cyan-400 shadow-md">
+          <span className="flex h-1.5 w-1.5 rounded-full bg-cyan-400 animate-pulse" />
+          Live Airspace
         </div>
 
-        {/* Aircraft indicators */}
-        <div className="absolute left-[30%] top-[30%]">
-          <Plane className="h-4 w-4 rotate-45 text-primary" />
-        </div>
-        <div className="absolute left-[70%] top-[40%]">
-          <Plane className="h-3 w-3 -rotate-12 text-accent" />
-        </div>
-        <div className="absolute left-[45%] top-[70%]">
-          <Plane className="h-3 w-3 rotate-90 text-green-400" />
-        </div>
-
-        {/* Info overlay */}
-        <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between">
-          <div className="flex items-center gap-2 rounded-full bg-muted/80 backdrop-blur-sm px-3 py-1.5 border border-border/30">
+        {/* Info overlay - Bottom */}
+        <div className="absolute bottom-3 left-3 right-3 z-[1010] flex items-center justify-between pointer-events-none">
+          <div className="flex items-center gap-2 rounded-full bg-background/90 backdrop-blur-sm px-3 py-1.5 border border-border/30 shadow-md">
             <span className="flex h-2 w-2 rounded-full bg-green-500 animate-pulse" />
-            <span className="text-xs font-medium">47 aircraft in view</span>
+            <span className="text-xs font-semibold">47 aircraft in view</span>
           </div>
-          <span className="rounded-full bg-muted/80 backdrop-blur-sm px-3 py-1.5 text-xs font-medium border border-border/30">100nm radius</span>
+          <span className="rounded-full bg-background/90 backdrop-blur-sm px-3 py-1.5 text-xs font-semibold border border-border/30 shadow-md">100nm radius</span>
         </div>
       </div>
       <div className="grid grid-cols-2 gap-3">
@@ -225,6 +223,9 @@ const demoResponses: Record<string, React.ReactNode> = {
           <p className="text-xl font-bold text-accent tabular-nums">24</p>
         </div>
       </div>
+      <p className="text-xs text-muted-foreground leading-relaxed italic bg-muted/20 p-3 rounded-xl border border-border/10">
+        Live airspace around ATL shows moderate traffic with balanced arrival and departure flow.
+      </p>
     </div>
   ),
 };
@@ -392,22 +393,6 @@ export function InteractiveDemo() {
             </AnimatePresence>
           </motion.div>
         </div>
-
-        {/* CTA */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          className="mt-14 text-center"
-        >
-          <Button
-            size="lg"
-            className="bg-gradient-to-r from-primary to-[oklch(0.6_0.1_210)] text-white border-0 px-8 glow-cyan hover:opacity-90 transition-opacity"
-          >
-            Start Your Analysis
-            <ArrowRight className="ml-2 h-4 w-4" />
-          </Button>
-        </motion.div>
       </div>
     </section>
   );

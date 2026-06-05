@@ -93,14 +93,19 @@ export function FinalCTA({ onStartChat }: { onStartChat?: () => void }) {
                 className="absolute inset-0 rounded-2xl blur-2xl"
                 style={{ background: "linear-gradient(135deg, oklch(0.5 0.12 200), oklch(0.45 0.1 210))" }}
               />
-              <div className="relative flex h-20 w-20 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-[oklch(0.6_0.1_210)] glow-cyan overflow-hidden">
-                <Image
-                  src="https://hebbkx1anhila5yf.public.blob.vercel-storage.com/image-X7ohEq5zMv1hCY6v7Br2Mp0TAU6yhF.png"
-                  alt="SkyQuery"
-                  width={48}
-                  height={48}
-                  className="object-contain brightness-0 invert"
-                />
+              <div className="relative flex h-20 w-20 items-center justify-center rounded-2xl bg-[#4A90D9] glow-cyan overflow-hidden">
+                <svg
+                  width={40}
+                  height={40}
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <path
+                    d="M12 2L14.09 8.26L20.18 8.64L15.54 12.74L17.12 19.36L12 15.77L6.88 19.36L8.46 12.74L3.82 8.64L9.91 8.26L12 2Z"
+                    fill="white"
+                  />
+                </svg>
               </div>
             </div>
           </motion.div>
@@ -126,7 +131,7 @@ export function FinalCTA({ onStartChat }: { onStartChat?: () => void }) {
             transition={{ delay: 0.2 }}
             className="mx-auto max-w-2xl text-lg text-muted-foreground mb-10 leading-relaxed"
           >
-            Join leading aviation teams using SkyQuery to transform their enterprise data into actionable intelligence.
+            Join your data using SkyQuery to transform enterprise data into actionable intelligence.
           </motion.p>
 
           {/* CTA Buttons */}
@@ -155,10 +160,7 @@ export function FinalCTA({ onStartChat }: { onStartChat?: () => void }) {
             transition={{ delay: 0.5 }}
             className="mt-16 flex flex-wrap items-center justify-center gap-8 text-sm text-muted-foreground"
           >
-            <div className="flex items-center gap-2">
-              <span className="flex h-2 w-2 rounded-full bg-green-500" />
-              <span>SOC 2 Compliant</span>
-            </div>
+
             <div className="flex items-center gap-2">
               <span className="flex h-2 w-2 rounded-full bg-primary" />
               <span>Enterprise Ready</span>

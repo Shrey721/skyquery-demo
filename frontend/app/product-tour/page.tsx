@@ -191,7 +191,7 @@ export default function ProductTourPage() {
       <GuidedWalkthrough />
       <FeaturesSection />
       <InteractiveDemo />
-      <GlobalAviationSection />
+      <GlobalAviationSection onOpenDiscover={() => protectedNavigate("/discover")} />
       <FinalCTA onStartChat={startChat} />
       <Footer />
       {toastMessage && (

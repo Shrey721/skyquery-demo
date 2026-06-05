@@ -882,8 +882,6 @@ export function PremiumAviationGlobe() {
           <MapPin className="h-3.5 w-3.5" />
           Drag to rotate
         </span>
-        <span className="h-4 w-px bg-border/60" />
-        <span>Scroll disabled for smoothness</span>
       </div>
     </div>
   );
