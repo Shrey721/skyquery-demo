@@ -476,278 +476,343 @@ function Step2Demo() {
 // STEP 3: DISCOVER LIVE AVIATION CONTEXT
 // ============================================================================
 
-const airports = [
-  { code: "SEA", x: 12, y: 22, status: "normal" },
-  { code: "SFO", x: 10, y: 42, status: "weather" },
-  { code: "LAX", x: 14, y: 52, status: "normal" },
-  { code: "DEN", x: 32, y: 38, status: "normal" },
-  { code: "DFW", x: 38, y: 55, status: "delay" },
-  { code: "ORD", x: 52, y: 32, status: "normal" },
-  { code: "ATL", x: 58, y: 48, status: "normal" },
-  { code: "MIA", x: 62, y: 68, status: "normal" },
-  { code: "JFK", x: 72, y: 32, status: "weather" },
-  { code: "BOS", x: 76, y: 26, status: "normal" },
+type AirportStatus = "normal" | "weather" | "delay";
+
+const airports: {
+  code: string;
+  city: string;
+  lat: number;
+  lng: number;
+  status: AirportStatus;
+  detail: string;
+}[] = [
+  { code: "SEA", city: "Seattle", lat: 47.4502, lng: -122.3088, status: "normal", detail: "Normal flow" },
+  { code: "SFO", city: "San Francisco", lat: 37.6213, lng: -122.379, status: "weather", detail: "Coastal ceiling" },
+  { code: "LAX", city: "Los Angeles", lat: 33.9416, lng: -118.4085, status: "normal", detail: "Normal flow" },
+  { code: "DEN", city: "Denver", lat: 39.8561, lng: -104.6737, status: "normal", detail: "Normal flow" },
+  { code: "DFW", city: "Dallas-Fort Worth", lat: 32.8998, lng: -97.0403, status: "delay", detail: "Delay impacted" },
+  { code: "ORD", city: "Chicago", lat: 41.9742, lng: -87.9073, status: "normal", detail: "Normal flow" },
+  { code: "ATL", city: "Atlanta", lat: 33.6407, lng: -84.4277, status: "normal", detail: "Normal flow" },
+  { code: "MIA", city: "Miami", lat: 25.7959, lng: -80.287, status: "normal", detail: "Normal flow" },
+  { code: "JFK", city: "New York", lat: 40.6413, lng: -73.7781, status: "weather", detail: "Weather impacted" },
+  { code: "BOS", city: "Boston", lat: 42.3656, lng: -71.0096, status: "normal", detail: "Normal flow" },
 ];
 
+const routeNetwork = [
+  { id: 1, flight: "SKY421", from: "LAX", to: "JFK", status: "normal" as AirportStatus, eta: "3h 42m" },
+  { id: 2, flight: "SEA118", from: "SEA", to: "ORD", status: "normal" as AirportStatus, eta: "2h 18m" },
+  { id: 3, flight: "SFO302", from: "SFO", to: "ATL", status: "weather" as AirportStatus, eta: "3h 05m" },
+  { id: 4, flight: "OPS744", from: "DFW", to: "MIA", status: "delay" as AirportStatus, eta: "1h 36m" },
+  { id: 5, flight: "BOS128", from: "BOS", to: "ATL", status: "normal" as AirportStatus, eta: "1h 54m" },
+];
+
+function statusColor(status: AirportStatus) {
+  if (status === "weather") return "#fbbf24";
+  if (status === "delay") return "#f87171";
+  return "#22d3ee";
+}
+
+function statusLabel(status: AirportStatus) {
+  if (status === "weather") return "Weather impacted";
+  if (status === "delay") return "Delay impacted";
+  return "Normal";
+}
+
+function airportByCode(code: string) {
+  return airports.find((airport) => airport.code === code) ?? airports[0];
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function interpolateLatLng(route: (typeof routeNetwork)[number], progress: number) {
+  const from = airportByCode(route.from);
+  const to = airportByCode(route.to);
+  const bow = Math.min(6, Math.max(2.4, Math.abs(from.lng - to.lng) * 0.12));
+  const t = progress;
+  const lat = from.lat + (to.lat - from.lat) * t + Math.sin(Math.PI * t) * bow;
+  const lng = from.lng + (to.lng - from.lng) * t;
+
+  return { lat, lng };
+}
+
+function routeHeading(map: any, route: (typeof routeNetwork)[number], progress: number) {
+  const current = interpolateLatLng(route, progress);
+  const next = interpolateLatLng(route, Math.min(progress + 0.005, 1));
+  const dLng = next.lng - current.lng;
+  const dLat = next.lat - current.lat;
+  return Math.atan2(dLng, dLat) * (180 / Math.PI);
+}
+
+function smoothHeading(previous: number | undefined, next: number) {
+  if (previous === undefined) return next;
+  const delta = ((next - previous + 540) % 360) - 180;
+  return previous + delta * 0.22;
+}
+
+function routePoints(route: (typeof routeNetwork)[number]) {
+  return Array.from({ length: 42 }, (_, index) => {
+    const point = interpolateLatLng(route, index / 41);
+    return [point.lat, point.lng] as [number, number];
+  });
+}
+
+function airportIconHtml(airport: (typeof airports)[number]) {
+  const color = statusColor(airport.status);
+  return `
+    <span style="position:relative;display:flex;height:28px;width:28px;align-items:center;justify-content:center;">
+      <span style="position:absolute;height:22px;width:22px;border-radius:999px;border:1px solid ${color};opacity:.32;box-shadow:0 0 18px ${color};"></span>
+      <span style="height:8px;width:8px;border-radius:999px;background:${color};box-shadow:0 0 14px ${color};"></span>
+      <span style="position:absolute;top:21px;left:50%;transform:translateX(-50%);font-size:8px;font-weight:700;color:rgba(255,255,255,.68);letter-spacing:.04em;">${airport.code}</span>
+    </span>
+  `;
+}
+
+function planeIconHtml(heading: number, status: AirportStatus) {
+  const color = statusColor(status);
+  return `
+    <svg data-tour-plane-icon xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24"
+      style="transform:rotate(${heading}deg);filter:drop-shadow(0 0 4px ${color});">
+      <path fill="${color}" d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L14 19v-5.5L21 16z"/>
+    </svg>
+  `;
+}
+
 function Step3Demo() {
-  const [activeAirport, setActiveAirport] = useState<string | null>(null);
-  const [showWeather, setShowWeather] = useState(false);
-  const [aircraftPositions, setAircraftPositions] = useState<
-    { id: number; progress: number; route: number }[]
-  >([]);
+  const mapHostRef = useRef<HTMLDivElement>(null);
+  const mapRef = useRef<any>(null);
+  const leafletRef = useRef<any>(null);
+  const aircraftElementsRef = useRef<Array<HTMLButtonElement | null>>([]);
+  const aircraftIconElementsRef = useRef<Array<SVGSVGElement | null>>([]);
+  const aircraftMarkersRef = useRef<Array<{ marker: any; iconElement: SVGElement | null }>>([]);
+  const previousHeadingRef = useRef<Array<number | undefined>>([]);
+  const progressRef = useRef([0, 0.22, 0.48, 0.7, 0.86]);
+  const refreshMapSizeRef = useRef<(() => void) | null>(null);
+  const [pinnedFlightId, setPinnedFlightId] = useState<number | null>(null);
 
   useEffect(() => {
-    // Initialize aircraft
-    setAircraftPositions([
-      { id: 1, progress: 0, route: 0 },
-      { id: 2, progress: 0.3, route: 1 },
-      { id: 3, progress: 0.6, route: 2 },
-    ]);
+    let cancelled = false;
+    let animationFrame = 0;
 
-    // Show weather overlay
-    const weatherTimer = setTimeout(() => setShowWeather(true), 1000);
+    async function initializeMap() {
+      if (!mapHostRef.current || mapRef.current) return;
+      const imported = await import("leaflet");
+      if (cancelled || !mapHostRef.current) return;
 
-    // Cycle through airports
-    let currentIndex = 0;
-    const airportInterval = setInterval(() => {
-      setActiveAirport(airports[currentIndex].code);
-      currentIndex = (currentIndex + 1) % airports.length;
-    }, 2000);
+      const L = imported.default ?? imported;
+      leafletRef.current = L;
 
-    // Animate aircraft
-    const aircraftInterval = setInterval(() => {
-      setAircraftPositions((prev) =>
-        prev.map((a) => ({
-          ...a,
-          progress: (a.progress + 0.02) % 1,
-        }))
-      );
-    }, 50);
+      const map = L.map(mapHostRef.current, {
+        attributionControl: false,
+        center: [38.5, -96],
+        doubleClickZoom: false,
+        dragging: false,
+        keyboard: false,
+        scrollWheelZoom: false,
+        touchZoom: false,
+        zoom: 4,
+        zoomControl: false,
+      });
+
+      L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+        attribution: "&copy; OpenStreetMap &copy; CARTO",
+        maxZoom: 18,
+        subdomains: "abcd",
+      }).addTo(map);
+
+      map.createPane("tourRoutes");
+      map.getPane("tourRoutes")!.style.zIndex = "410";
+      map.createPane("tourAirports");
+      map.getPane("tourAirports")!.style.zIndex = "430";
+      map.createPane("tourAircraft");
+      map.getPane("tourAircraft")!.style.zIndex = "450";
+
+      routeNetwork.forEach((route) => {
+        const color = statusColor(route.status);
+        L.polyline(routePoints(route), {
+          color,
+          dashArray: route.status === "normal" ? "3 7" : "4 6",
+          opacity: route.status === "normal" ? 0.34 : 0.56,
+          pane: map.getPane("tourRoutes") ? "tourRoutes" : undefined,
+          weight: route.status === "normal" ? 1.2 : 1.6,
+        }).addTo(map);
+      });
+
+      airports.forEach((airport) => {
+        const color = statusColor(airport.status);
+        L.marker([airport.lat, airport.lng], {
+          icon: L.divIcon({
+            className: "skyquery-tour-airport-marker",
+            html: airportIconHtml(airport),
+            iconAnchor: [14, 14],
+            iconSize: [28, 28],
+          }),
+          keyboard: false,
+          pane: map.getPane("tourAirports") ? "tourAirports" : undefined,
+          riseOnHover: true,
+        })
+          .bindTooltip(
+            `<div class="discover-airport-tooltip"><strong>${escapeHtml(airport.code)}</strong><span>${escapeHtml(airport.city)}</span><span style="color:${color}">${statusLabel(airport.status)}</span></div>`,
+            { className: "discover-airport-tooltip-shell", direction: "top", offset: [0, -12], opacity: 0.96, sticky: true }
+          )
+          .bindPopup(
+            `<div class="discover-airport-popup"><strong>${escapeHtml(airport.code)}</strong><span>${escapeHtml(airport.city)}</span><span style="color:${color}">${statusLabel(airport.status)}</span><span>${escapeHtml(airport.detail)}</span></div>`,
+            { className: "discover-airport-popup-shell" }
+          )
+          .addTo(map);
+      });
+
+      aircraftMarkersRef.current = routeNetwork.map((route, index) => {
+        const point = interpolateLatLng(route, progressRef.current[index] ?? 0);
+        const heading = routeHeading(map, route, progressRef.current[index] ?? 0);
+        const color = statusColor(route.status);
+        const marker = L.marker([point.lat, point.lng], {
+          icon: L.divIcon({
+            className: "skyquery-tour-aircraft-marker",
+            html: planeIconHtml(heading, route.status),
+            iconAnchor: [11, 11],
+            iconSize: [22, 22],
+          }),
+          keyboard: false,
+          pane: map.getPane("tourAircraft") ? "tourAircraft" : undefined,
+          riseOnHover: true,
+        })
+          .bindTooltip(
+            `<div class="discover-airport-tooltip"><strong>${escapeHtml(route.flight)}</strong><span>${route.from} → ${route.to}</span><span style="color:${color}">${statusLabel(route.status)}</span><span>ETA ${escapeHtml(route.eta)}</span></div>`,
+            { className: "discover-airport-tooltip-shell", direction: "top", offset: [0, -12], opacity: 0.96, sticky: true }
+          )
+          .bindPopup(
+            `<div class="discover-airport-popup"><strong>${escapeHtml(route.flight)}</strong><span>${route.from} → ${route.to}</span><span style="color:${color}">${statusLabel(route.status)}</span><span>ETA ${escapeHtml(route.eta)}</span></div>`,
+            { className: "discover-airport-popup-shell" }
+          )
+          .addTo(map);
+        return {
+          marker,
+          iconElement: marker.getElement()?.querySelector("[data-tour-plane-icon]") as SVGElement | null,
+        };
+      });
+
+      /*
+      Aircraft icons render in the stable DOM overlay below. Keeping the old
+      Leaflet marker implementation commented here would re-create marker
+      internals during RAF updates and can cause visible flicker.
+      aircraftMarkersRef.current = routeNetwork.map((route, index) => {
+        const point = interpolateLatLng(route, progressRef.current[index] ?? 0);
+        const heading = routeHeading(map, route, progressRef.current[index] ?? 0);
+        const color = statusColor(route.status);
+        const marker = L.marker([point.lat, point.lng], {
+          icon: L.divIcon({
+            className: "skyquery-tour-aircraft-marker",
+            html: planeIconHtml(heading, route.status),
+            iconAnchor: [15, 15],
+            iconSize: [30, 30],
+          }),
+          keyboard: false,
+          pane: "tourAircraft",
+          riseOnHover: true,
+        })
+          .bindTooltip(
+            `<div class="discover-airport-tooltip"><strong>${escapeHtml(route.flight)}</strong><span>${route.from} → ${route.to}</span><span style="color:${color}">${statusLabel(route.status)}</span><span>ETA ${escapeHtml(route.eta)}</span></div>`,
+            { className: "discover-airport-tooltip-shell", direction: "top", offset: [0, -12], opacity: 0.96, sticky: true }
+          )
+          .bindPopup(
+            `<div class="discover-airport-popup"><strong>${escapeHtml(route.flight)}</strong><span>${route.from} → ${route.to}</span><span style="color:${color}">${statusLabel(route.status)}</span><span>ETA ${escapeHtml(route.eta)}</span></div>`,
+            { className: "discover-airport-popup-shell" }
+          )
+          .addTo(map);
+        return {
+          marker,
+          iconElement: marker.getElement()?.querySelector("[data-tour-plane-icon]") as SVGElement | null,
+        };
+      });
+      */
+
+      const bounds = L.latLngBounds(airports.map((airport) => [airport.lat, airport.lng]));
+      map.fitBounds(bounds, { padding: [42, 42] });
+      mapRef.current = map;
+      const refreshMapSize = () => map.invalidateSize({ pan: false });
+      refreshMapSizeRef.current = refreshMapSize;
+      window.addEventListener("resize", refreshMapSize);
+
+      const animate = () => {
+        aircraftMarkersRef.current.forEach((aircraft, index) => {
+          const route = routeNetwork[index];
+          progressRef.current[index] = (progressRef.current[index] + 0.0017 + index * 0.00012) % 1;
+          const point = interpolateLatLng(route, progressRef.current[index]);
+          const heading = routeHeading(map, route, progressRef.current[index]);
+          aircraft.marker.setLatLng([point.lat, point.lng]);
+          const iconElement =
+            aircraft.iconElement ??
+            (aircraft.marker.getElement()?.querySelector("[data-tour-plane-icon]") as SVGElement | null);
+          aircraft.iconElement = iconElement;
+          if (iconElement) iconElement.style.transform = `rotate(${heading}deg)`;
+        });
+        animationFrame = requestAnimationFrame(animate);
+      };
+
+      animationFrame = requestAnimationFrame(animate);
+    }
+
+    initializeMap();
 
     return () => {
-      clearTimeout(weatherTimer);
-      clearInterval(airportInterval);
-      clearInterval(aircraftInterval);
+      cancelled = true;
+      if (animationFrame) cancelAnimationFrame(animationFrame);
+      if (refreshMapSizeRef.current) {
+        window.removeEventListener("resize", refreshMapSizeRef.current);
+        refreshMapSizeRef.current = null;
+      }
+      mapRef.current?.remove();
+      mapRef.current = null;
+      aircraftMarkersRef.current = [];
     };
   }, []);
 
-  const routes = [
-    { from: { x: 10, y: 42 }, to: { x: 72, y: 32 } }, // SFO to JFK
-    { from: { x: 14, y: 52 }, to: { x: 52, y: 32 } }, // LAX to ORD
-    { from: { x: 58, y: 48 }, to: { x: 12, y: 22 } }, // ATL to SEA
-  ];
-
   return (
     <div className="relative h-full min-h-[400px] rounded-2xl bg-[#050a10] border border-white/10 overflow-hidden">
-      {/* Radar grid background */}
+      <div ref={mapHostRef} className="absolute inset-0" aria-label="US aviation operations map" />
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_48%,transparent_38%,rgba(5,10,16,0.38)_88%)]" />
       <div
-        className="absolute inset-0 opacity-30"
+        className="pointer-events-none absolute inset-0 opacity-20"
         style={{
           backgroundImage: `
-            radial-gradient(circle at 50% 50%, transparent 0%, #050a10 70%),
-            linear-gradient(rgba(34, 211, 238, 0.1) 1px, transparent 1px),
-            linear-gradient(90deg, rgba(34, 211, 238, 0.1) 1px, transparent 1px)
+            linear-gradient(rgba(34, 211, 238, 0.11) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(34, 211, 238, 0.11) 1px, transparent 1px)
           `,
-          backgroundSize: "100% 100%, 30px 30px, 30px 30px",
+          backgroundSize: "36px 36px",
         }}
       />
-
-      {/* US map outline (simplified) */}
-      <svg className="absolute inset-0 w-full h-full" viewBox="0 0 100 100">
-        <path
-          d="M8,25 Q15,20 25,22 T45,25 T65,22 T78,28 Q82,35 80,45 Q78,55 70,62 T55,68 T40,70 T25,65 T12,55 Q8,45 8,35 Z"
-          fill="none"
-          stroke="rgba(34, 211, 238, 0.15)"
-          strokeWidth="0.3"
-        />
-      </svg>
-
-      {/* Weather overlays */}
-      <AnimatePresence>
-        {showWeather && (
-          <>
-            <motion.div
-              initial={{ opacity: 0, scale: 0.5 }}
-              animate={{ opacity: 0.4, scale: 1 }}
-              className="absolute rounded-full"
-              style={{
-                left: "65%",
-                top: "25%",
-                width: "15%",
-                height: "20%",
-                background:
-                  "radial-gradient(ellipse, rgba(251, 191, 36, 0.4) 0%, transparent 70%)",
-              }}
-            />
-            <motion.div
-              initial={{ opacity: 0, scale: 0.5 }}
-              animate={{ opacity: 0.35, scale: 1 }}
-              transition={{ delay: 0.3 }}
-              className="absolute rounded-full"
-              style={{
-                left: "5%",
-                top: "35%",
-                width: "12%",
-                height: "15%",
-                background:
-                  "radial-gradient(ellipse, rgba(251, 191, 36, 0.35) 0%, transparent 70%)",
-              }}
-            />
-          </>
-        )}
-      </AnimatePresence>
-
-      {/* Flight routes */}
-      <svg className="absolute inset-0 w-full h-full">
-        {routes.map((route, i) => (
-          <motion.path
-            key={i}
-            d={`M ${route.from.x} ${route.from.y} Q ${
-              (route.from.x + route.to.x) / 2
-            } ${Math.min(route.from.y, route.to.y) - 10} ${route.to.x} ${
-              route.to.y
-            }`}
-            fill="none"
-            stroke="rgba(34, 211, 238, 0.2)"
-            strokeWidth="0.3"
-            strokeDasharray="2 2"
-            initial={{ pathLength: 0 }}
-            animate={{ pathLength: 1 }}
-            transition={{ duration: 2, delay: i * 0.3 }}
-          />
-        ))}
-      </svg>
-
-      {/* Aircraft */}
-      {aircraftPositions.map((aircraft) => {
-        const route = routes[aircraft.route];
-        const t = aircraft.progress;
-        const x =
-          (1 - t) * (1 - t) * route.from.x +
-          2 * (1 - t) * t * ((route.from.x + route.to.x) / 2) +
-          t * t * route.to.x;
-        const y =
-          (1 - t) * (1 - t) * route.from.y +
-          2 * (1 - t) * t * (Math.min(route.from.y, route.to.y) - 10) +
-          t * t * route.to.y;
-
-        return (
-          <motion.div
-            key={aircraft.id}
-            className="absolute"
-            style={{
-              left: `${x}%`,
-              top: `${y}%`,
-              transform: "translate(-50%, -50%)",
-            }}
-          >
-            <Plane
-              className="h-3 w-3 text-cyan-400"
-              style={{
-                transform: `rotate(${
-                  Math.atan2(route.to.y - route.from.y, route.to.x - route.from.x) *
-                  (180 / Math.PI)
-                }deg)`,
-              }}
-            />
-          </motion.div>
-        );
-      })}
-
-      {/* Airport markers */}
-      {airports.map((airport) => {
-        const isActive = activeAirport === airport.code;
-        const statusColor =
-          airport.status === "weather"
-            ? "#fbbf24"
-            : airport.status === "delay"
-            ? "#f87171"
-            : "#22d3ee";
-
-        return (
-          <div
-            key={airport.code}
-            className="absolute"
-            style={{
-              left: `${airport.x}%`,
-              top: `${airport.y}%`,
-              transform: "translate(-50%, -50%)",
-            }}
-          >
-            {/* Pulse ring for active */}
-            {isActive && (
-              <motion.div
-                className="absolute inset-0 rounded-full"
-                style={{
-                  width: 24,
-                  height: 24,
-                  left: -8,
-                  top: -8,
-                  border: `2px solid ${statusColor}`,
-                }}
-                animate={{ scale: [1, 2], opacity: [0.6, 0] }}
-                transition={{ duration: 1.2, repeat: Infinity }}
-              />
-            )}
-
-            {/* Airport dot */}
-            <motion.div
-              className="rounded-full transition-all duration-300"
-              style={{
-                width: isActive ? 10 : 6,
-                height: isActive ? 10 : 6,
-                backgroundColor: statusColor,
-                boxShadow: isActive ? `0 0 15px ${statusColor}` : "none",
-              }}
-            />
-
-            {/* Label */}
-            <span
-              className="absolute -bottom-4 left-1/2 -translate-x-1/2 text-[8px] font-semibold transition-all duration-300"
-              style={{
-                color: isActive ? statusColor : "rgba(255,255,255,0.5)",
-              }}
-            >
-              {airport.code}
-            </span>
-
-            {/* Info popup */}
-            <AnimatePresence>
-              {isActive && (
-                <motion.div
-                  initial={{ opacity: 0, y: 5, scale: 0.9 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.9 }}
-                  className="absolute left-4 -top-2 w-28 rounded-lg bg-[#0d1820] border border-white/10 p-2 z-10"
-                >
-                  <p className="text-[10px] font-semibold text-white">
-                    {airport.code}
-                  </p>
-                  <div className="flex items-center gap-1 mt-1">
-                    <div
-                      className="h-1.5 w-1.5 rounded-full"
-                      style={{ backgroundColor: statusColor }}
-                    />
-                    <span
-                      className="text-[8px] capitalize"
-                      style={{ color: statusColor }}
-                    >
-                      {airport.status === "normal" ? "Operational" : airport.status}
-                    </span>
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-        );
-      })}
+      <motion.div
+        animate={{ opacity: [0.18, 0.34, 0.18], scale: [0.92, 1.04, 0.92] }}
+        className="pointer-events-none absolute left-[6%] top-[32%] h-24 w-28 rounded-full"
+        style={{ background: "radial-gradient(ellipse, rgba(251, 191, 36, 0.28) 0%, transparent 70%)" }}
+        transition={{ duration: 3.8, repeat: Infinity, ease: "easeInOut" }}
+      />
+      <motion.div
+        animate={{ opacity: [0.16, 0.3, 0.16], scale: [0.94, 1.06, 0.94] }}
+        className="pointer-events-none absolute right-[11%] top-[28%] h-28 w-32 rounded-full"
+        style={{ background: "radial-gradient(ellipse, rgba(251, 191, 36, 0.3) 0%, transparent 72%)" }}
+        transition={{ duration: 4.4, repeat: Infinity, ease: "easeInOut", delay: 0.4 }}
+      />
+      <motion.div
+        animate={{ opacity: [0.12, 0.24, 0.12], scale: [0.95, 1.05, 0.95] }}
+        className="pointer-events-none absolute left-[43%] top-[56%] h-24 w-28 rounded-full"
+        style={{ background: "radial-gradient(ellipse, rgba(248, 113, 113, 0.24) 0%, transparent 72%)" }}
+        transition={{ duration: 4.1, repeat: Infinity, ease: "easeInOut", delay: 0.7 }}
+      />
 
       {/* Legend */}
       <div className="absolute bottom-4 left-4 flex items-center gap-4">
         {[
-          { label: "Normal", color: "#22d3ee" },
-          { label: "Weather", color: "#fbbf24" },
-          { label: "Delay", color: "#f87171" },
+          { label: "Normal", color: statusColor("normal") },
+          { label: "Weather", color: statusColor("weather") },
+          { label: "Delay", color: statusColor("delay") },
         ].map((item) => (
           <div key={item.label} className="flex items-center gap-1.5">
             <div

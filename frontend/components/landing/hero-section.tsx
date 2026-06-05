@@ -4,7 +4,6 @@ import { motion, useReducedMotion } from "framer-motion";
 import { ArrowRight, Cloud, Plane, MapPin, Activity, Mic, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useEffect, useState, useCallback, useMemo } from "react";
-import Image from "next/image";
 
 const fadeInUp = {
   hidden: { opacity: 0, y: 20 },
@@ -550,7 +549,7 @@ function VoiceInteractionDemo() {
 
 export function HeroSection({ onStartChat }: { onStartChat?: () => void }) {
   return (
-    <section className="relative min-h-screen overflow-hidden pt-28 pb-20">
+    <section className="relative min-h-screen overflow-hidden pt-16 pb-20 sm:pt-[4.75rem] lg:pt-20">
       <PremiumBackground />
 
       <div className="relative mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
@@ -563,7 +562,7 @@ export function HeroSection({ onStartChat }: { onStartChat?: () => void }) {
           className="text-center"
         >
           {/* Badge */}
-          <motion.div variants={fadeInUp} className="mb-5 inline-block">
+          <motion.div variants={fadeInUp} className="mb-4 inline-block">
             <span className="inline-flex items-center gap-2 rounded-full border border-border/50 bg-muted/30 backdrop-blur-sm px-4 py-1.5 text-sm text-muted-foreground">
               <span className="relative flex h-2 w-2">
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-50" />
@@ -571,17 +570,6 @@ export function HeroSection({ onStartChat }: { onStartChat?: () => void }) {
               </span>
               Enterprise Aviation Intelligence
             </span>
-          </motion.div>
-
-          {/* Logo icon */}
-          <motion.div variants={fadeInUp} className="mb-6 flex justify-center">
-            <Image
-              src="https://hebbkx1anhila5yf.public.blob.vercel-storage.com/image-X7ohEq5zMv1hCY6v7Br2Mp0TAU6yhF.png"
-              alt="SkyQuery"
-              width={48}
-              height={48}
-              priority
-            />
           </motion.div>
 
           {/* Headline */}

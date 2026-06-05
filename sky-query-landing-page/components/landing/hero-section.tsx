@@ -4,7 +4,6 @@ import { motion, useReducedMotion } from "framer-motion";
 import { ArrowRight, Cloud, Plane, MapPin, Activity, Mic, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useEffect, useState, useCallback, useMemo } from "react";
-import Image from "next/image";
 
 const fadeInUp = {
   hidden: { opacity: 0, y: 20 },
@@ -12,6 +11,13 @@ const fadeInUp = {
 };
 
 const DEMO_ANIMATION_START_DELAY = 1800;
+
+const ambientParticles = Array.from({ length: 12 }, (_, i) => ({
+  left: `${18 + ((i * 17) % 64)}%`,
+  top: `${16 + ((i * 23) % 62)}%`,
+  duration: 5 + (i % 4) * 0.7,
+  delay: (i % 6) * 0.45,
+}));
 
 function PremiumBackground() {
   const shouldReduceMotion = useReducedMotion();
@@ -173,13 +179,13 @@ function PremiumBackground() {
       ))}
 
       {/* Subtle floating particles */}
-      {[...Array(12)].map((_, i) => (
+      {ambientParticles.map((particle, i) => (
         <motion.div
           key={i}
           className="absolute h-1 w-1 rounded-full bg-primary/60"
           style={{
-            left: `${15 + Math.random() * 70}%`,
-            top: `${15 + Math.random() * 70}%`,
+            left: particle.left,
+            top: particle.top,
           }}
           initial={{ y: 0, opacity: 0.15 }}
           animate={{
@@ -187,9 +193,9 @@ function PremiumBackground() {
             opacity: [0.15, 0.4, 0.15],
           }}
           transition={{
-            duration: 5 + Math.random() * 3,
+            duration: particle.duration,
             repeat: Infinity,
-            delay: Math.random() * 4,
+            delay: particle.delay,
             ease: "easeInOut",
           }}
         />
@@ -541,9 +547,9 @@ function VoiceInteractionDemo() {
   );
 }
 
-export function HeroSection() {
+export function HeroSection({ onStartChat }: { onStartChat?: () => void }) {
   return (
-    <section className="relative min-h-screen overflow-hidden pt-28 pb-20">
+    <section className="relative min-h-screen overflow-hidden pt-16 pb-20 sm:pt-[4.75rem] lg:pt-20">
       <PremiumBackground />
 
       <div className="relative mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
@@ -556,7 +562,7 @@ export function HeroSection() {
           className="text-center"
         >
           {/* Badge */}
-          <motion.div variants={fadeInUp} className="mb-5 inline-block">
+          <motion.div variants={fadeInUp} className="mb-4 inline-block">
             <span className="inline-flex items-center gap-2 rounded-full border border-border/50 bg-muted/30 backdrop-blur-sm px-4 py-1.5 text-sm text-muted-foreground">
               <span className="relative flex h-2 w-2">
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-50" />
@@ -564,17 +570,6 @@ export function HeroSection() {
               </span>
               Enterprise Aviation Intelligence
             </span>
-          </motion.div>
-
-          {/* Logo icon */}
-          <motion.div variants={fadeInUp} className="mb-6 flex justify-center">
-            <Image
-              src="https://hebbkx1anhila5yf.public.blob.vercel-storage.com/image-X7ohEq5zMv1hCY6v7Br2Mp0TAU6yhF.png"
-              alt="SkyQuery"
-              width={48}
-              height={48}
-              className="h-12 w-auto"
-            />
           </motion.div>
 
           {/* Headline */}
@@ -602,6 +597,7 @@ export function HeroSection() {
           >
             <Button
               size="lg"
+              onClick={onStartChat}
               className="group bg-gradient-to-r from-primary to-[oklch(0.65_0.12_210)] text-white border-0 px-8 glow-cyan hover:opacity-90 transition-opacity"
             >
               Start Chat
