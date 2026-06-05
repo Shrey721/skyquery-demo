@@ -375,6 +375,7 @@ function AircraftMarkerButton({
       <svg
         fill="currentColor"
         height="18"
+        className="aircraft-svg"
         style={{
           transform: `rotate(${heading}deg) scale(${isHovered ? 1.1 : 1})`,
           transition: "transform 150ms ease",
@@ -518,14 +519,38 @@ export function PremiumAviationGlobe() {
   const globeRef = useRef<any>(null);
   const [isInView, setIsInView] = useState(true);
   const [size, setSize] = useState(720);
-  const [progress, setProgress] = useState(0);
   const [selectedAirport, setSelectedAirport] = useState<Airport | null>(null);
   const [selectedFlight, setSelectedFlight] = useState<Flight | null>(null);
   const [hoveredAirportCode, setHoveredAirportCode] = useState<Airport["code"] | null>(null);
   const [hoveredFlightId, setHoveredFlightId] = useState<Flight["flight"] | null>(null);
-  const [screenMarkers, setScreenMarkers] = useState<ScreenMarker[]>([]);
   const hoverClearTimerRef = useRef<number | null>(null);
-  const aircraftDataRef = useRef<AircraftMarker[]>([]);
+
+  const progressRef = useRef(0);
+  const markerRefs = useRef<Map<string, HTMLDivElement | null>>(null);
+  if (!markerRefs.current) {
+    markerRefs.current = new Map();
+  }
+
+  const selectedAirportRef = useRef<Airport | null>(null);
+  const selectedFlightRef = useRef<Flight | null>(null);
+  const hoveredAirportCodeRef = useRef<Airport["code"] | null>(null);
+  const hoveredFlightIdRef = useRef<Flight["flight"] | null>(null);
+
+  useEffect(() => {
+    selectedAirportRef.current = selectedAirport;
+  }, [selectedAirport]);
+
+  useEffect(() => {
+    selectedFlightRef.current = selectedFlight;
+  }, [selectedFlight]);
+
+  useEffect(() => {
+    hoveredAirportCodeRef.current = hoveredAirportCode;
+  }, [hoveredAirportCode]);
+
+  useEffect(() => {
+    hoveredFlightIdRef.current = hoveredFlightId;
+  }, [hoveredFlightId]);
 
   const airportByCode = useMemo(() => new Map(airports.map((airport) => [airport.code, airport])), []);
 
@@ -549,33 +574,6 @@ export function PremiumAviationGlobe() {
         .filter((route): route is ArcDatum => Boolean(route)),
     [airportByCode]
   );
-
-  const aircraftData = useMemo(() => {
-    if (shouldReduceMotion) return [];
-
-    return flights.map((flight, index) => {
-      const from = airportByCode.get(flight.from);
-      const to = airportByCode.get(flight.to);
-      if (!from || !to) return null;
-      const routeProgress = (progress + index * 0.21) % 1;
-      const nextProgress = Math.min(routeProgress + 0.012, 1);
-      const point = interpolateRoutePoint(from, to, routeProgress);
-      const nextPoint = interpolateRoutePoint(from, to, nextProgress);
-      const heading = getBearing(point.lat, point.lng, nextPoint.lat, nextPoint.lng);
-      return {
-        markerType: "aircraft" as const,
-        id: flight.flight,
-        flight,
-        lat: point.lat,
-        lng: point.lng,
-        heading,
-      };
-    }).filter((marker): marker is AircraftMarker => Boolean(marker));
-  }, [airportByCode, progress, shouldReduceMotion]);
-
-  useEffect(() => {
-    aircraftDataRef.current = aircraftData;
-  }, [aircraftData]);
 
   useEffect(() => {
     const element = containerRef.current;
@@ -617,8 +615,9 @@ export function PremiumAviationGlobe() {
     globeRef.current?.pointOfView?.({ lat: 21, lng: 48, altitude: 1.72 }, 0);
   }, []);
 
+  // Consolidate into a single optimized RAF loop that updates DOM nodes directly without triggering React re-renders
   useEffect(() => {
-    if (shouldReduceMotion || !isInView) return;
+    if (!isInView) return;
 
     let frame = 0;
     let previous = performance.now();
@@ -626,106 +625,116 @@ export function PremiumAviationGlobe() {
     const animate = (time: number) => {
       const delta = Math.min(time - previous, 48);
       previous = time;
-      setProgress((current) => (current + delta * 0.000035) % 1);
+
+      if (!shouldReduceMotion) {
+        progressRef.current = (progressRef.current + delta * 0.000035) % 1;
+      }
+
+      const globe = globeRef.current;
+      const toScreen = globe?.getScreenCoords?.bind(globe);
+
+      if (toScreen) {
+        // 1. Project & Update Airport Markers
+        airports.forEach((airport) => {
+          const el = markerRefs.current?.get(`airport-${airport.code}`);
+          if (!el) return;
+
+          const coords = toScreen(airport.lat, airport.lng, 0.038);
+          const visible =
+            Boolean(coords) &&
+            Number.isFinite(coords.x) &&
+            Number.isFinite(coords.y) &&
+            coords.x >= -32 &&
+            coords.y >= -32 &&
+            coords.x <= size + 32 &&
+            coords.y <= size + 32 &&
+            isFrontFacing(globe, airport.lat, airport.lng);
+
+          if (visible) {
+            el.style.transform = `translate3d(${coords.x}px, ${coords.y}px, 0)`;
+            el.style.opacity = "1";
+            el.style.pointerEvents = "auto";
+          } else {
+            el.style.opacity = "0";
+            el.style.pointerEvents = "none";
+          }
+
+          if (selectedAirportRef.current?.code === airport.code && !visible) {
+            setSelectedAirport(null);
+          }
+          if (hoveredAirportCodeRef.current === airport.code && !visible) {
+            setHoveredAirportCode(null);
+          }
+        });
+
+        // 2. Compute, Project & Update Flight Markers
+        flights.forEach((flight, index) => {
+          const el = markerRefs.current?.get(`flight-${flight.flight}`);
+          if (!el) return;
+
+          let visible = false;
+          let lat = 0;
+          let lng = 0;
+          let heading = 0;
+
+          if (!shouldReduceMotion) {
+            const routeProgress = (progressRef.current + index * 0.21) % 1;
+            const nextProgress = Math.min(routeProgress + 0.012, 1);
+            const from = airportByCode.get(flight.from);
+            const to = airportByCode.get(flight.to);
+
+            if (from && to) {
+              const point = interpolateRoutePoint(from, to, routeProgress);
+              const nextPoint = interpolateRoutePoint(from, to, nextProgress);
+              heading = getBearing(point.lat, point.lng, nextPoint.lat, nextPoint.lng);
+              lat = point.lat;
+              lng = point.lng;
+
+              const coords = toScreen(lat, lng, 0.06);
+              visible =
+                Boolean(coords) &&
+                Number.isFinite(coords.x) &&
+                Number.isFinite(coords.y) &&
+                coords.x >= -28 &&
+                coords.y >= -28 &&
+                coords.x <= size + 28 &&
+                coords.y <= size + 28 &&
+                isFrontFacing(globe, lat, lng);
+
+              if (visible) {
+                el.style.transform = `translate3d(${coords.x}px, ${coords.y}px, 0)`;
+                el.style.opacity = "1";
+                el.style.pointerEvents = "auto";
+
+                const svg = el.querySelector(".aircraft-svg") as SVGElement | null;
+                if (svg) {
+                  const isHovered = hoveredFlightIdRef.current === flight.flight;
+                  svg.style.transform = `rotate(${heading}deg) scale(${isHovered ? 1.1 : 1})`;
+                }
+              }
+            }
+          }
+
+          if (!visible) {
+            el.style.opacity = "0";
+            el.style.pointerEvents = "none";
+          }
+
+          if (selectedFlightRef.current?.flight === flight.flight && !visible) {
+            setSelectedFlight(null);
+          }
+          if (hoveredFlightIdRef.current === flight.flight && !visible) {
+            setHoveredFlightId(null);
+          }
+        });
+      }
+
       frame = requestAnimationFrame(animate);
     };
 
     frame = requestAnimationFrame(animate);
     return () => cancelAnimationFrame(frame);
-  }, [isInView, shouldReduceMotion]);
-
-  useEffect(() => {
-    if (!isInView) return;
-
-    let frame = 0;
-    const projectMarkers = () => {
-      const globe = globeRef.current;
-      const toScreen = globe?.getScreenCoords?.bind(globe);
-
-      if (toScreen) {
-        const nextMarkers: ScreenMarker[] = [
-          ...airports.map((airport) => {
-            const coords = toScreen(airport.lat, airport.lng, 0.038);
-            const visible =
-              Boolean(coords) &&
-              Number.isFinite(coords.x) &&
-              Number.isFinite(coords.y) &&
-              coords.x >= -32 &&
-              coords.y >= -32 &&
-              coords.x <= size + 32 &&
-              coords.y <= size + 32 &&
-              isFrontFacing(globe, airport.lat, airport.lng);
-
-            return {
-              markerType: "airport" as const,
-              airport,
-              x: coords?.x ?? 0,
-              y: coords?.y ?? 0,
-              visible,
-            };
-          }),
-          ...aircraftDataRef.current.map((aircraft) => {
-            const coords = toScreen(aircraft.lat, aircraft.lng, 0.06);
-            const visible =
-              Boolean(coords) &&
-              Number.isFinite(coords.x) &&
-              Number.isFinite(coords.y) &&
-              coords.x >= -28 &&
-              coords.y >= -28 &&
-              coords.x <= size + 28 &&
-              coords.y <= size + 28 &&
-              isFrontFacing(globe, aircraft.lat, aircraft.lng);
-
-            return {
-              markerType: "aircraft" as const,
-              flight: aircraft.flight,
-              heading: aircraft.heading,
-              x: coords?.x ?? 0,
-              y: coords?.y ?? 0,
-              visible,
-            };
-          }),
-        ];
-
-        setScreenMarkers(nextMarkers);
-      }
-
-      frame = requestAnimationFrame(projectMarkers);
-    };
-
-    frame = requestAnimationFrame(projectMarkers);
-    return () => cancelAnimationFrame(frame);
-  }, [isInView, size]);
-
-  useEffect(() => {
-    if (selectedAirport) {
-      const marker = screenMarkers.find(
-        (item) => item.markerType === "airport" && item.airport.code === selectedAirport.code
-      );
-      if (marker && !marker.visible) setSelectedAirport(null);
-    }
-
-    if (selectedFlight) {
-      const marker = screenMarkers.find(
-        (item) => item.markerType === "aircraft" && item.flight.flight === selectedFlight.flight
-      );
-      if (marker && !marker.visible) setSelectedFlight(null);
-    }
-
-    if (hoveredAirportCode) {
-      const marker = screenMarkers.find(
-        (item) => item.markerType === "airport" && item.airport.code === hoveredAirportCode
-      );
-      if (marker && !marker.visible) setHoveredAirportCode(null);
-    }
-
-    if (hoveredFlightId) {
-      const marker = screenMarkers.find(
-        (item) => item.markerType === "aircraft" && item.flight.flight === hoveredFlightId
-      );
-      if (marker && !marker.visible) setHoveredFlightId(null);
-    }
-  }, [hoveredAirportCode, hoveredFlightId, screenMarkers, selectedAirport, selectedFlight]);
+  }, [isInView, size, shouldReduceMotion, airportByCode]);
 
   const selectAirport = useCallback((airport: Airport) => {
     setSelectedFlight(null);
@@ -823,50 +832,49 @@ export function PremiumAviationGlobe() {
       />
 
       <div className="pointer-events-none absolute left-0 top-0 z-20" style={{ height: size, width: size }}>
-        {screenMarkers.map((marker) => {
-          if (marker.markerType === "airport") {
-            return (
-              <div
-                className="absolute transition-opacity duration-150"
-                key={marker.airport.code}
-                style={{
-                  left: marker.x,
-                  opacity: marker.visible ? 1 : 0,
-                  pointerEvents: marker.visible ? "auto" : "none",
-                  top: marker.y,
-                }}
-              >
-                <AirportMarkerButton
-                  airport={marker.airport}
-                  isHovered={hoveredAirportCode === marker.airport.code}
-                  onHover={(airport) => setStableHover("airport", airport)}
-                  onSelect={selectAirport}
-                />
-              </div>
-            );
-          }
-
-          return (
-            <div
-              className="absolute transition-opacity duration-150"
-              key={marker.flight.flight}
-              style={{
-                left: marker.x,
-                opacity: marker.visible ? 1 : 0,
-                pointerEvents: marker.visible ? "auto" : "none",
-                top: marker.y,
-              }}
-            >
-              <AircraftMarkerButton
-                flight={marker.flight}
-                heading={marker.heading}
-                isHovered={hoveredFlightId === marker.flight.flight}
-                onHover={(flight) => setStableHover("flight", flight)}
-                onSelect={selectFlight}
-              />
-            </div>
-          );
-        })}
+        {airports.map((airport) => (
+          <div
+            key={airport.code}
+            ref={(el) => {
+              if (el) markerRefs.current?.set(`airport-${airport.code}`, el);
+              else markerRefs.current?.delete(`airport-${airport.code}`);
+            }}
+            className="absolute [will-change:transform,opacity]"
+            style={{
+              opacity: 0,
+              pointerEvents: "none",
+            }}
+          >
+            <AirportMarkerButton
+              airport={airport}
+              isHovered={hoveredAirportCode === airport.code}
+              onHover={(airport) => setStableHover("airport", airport)}
+              onSelect={selectAirport}
+            />
+          </div>
+        ))}
+        {flights.map((flight) => (
+          <div
+            key={flight.flight}
+            ref={(el) => {
+              if (el) markerRefs.current?.set(`flight-${flight.flight}`, el);
+              else markerRefs.current?.delete(`flight-${flight.flight}`);
+            }}
+            className="absolute [will-change:transform,opacity]"
+            style={{
+              opacity: 0,
+              pointerEvents: "none",
+            }}
+          >
+            <AircraftMarkerButton
+              flight={flight}
+              heading={0}
+              isHovered={hoveredFlightId === flight.flight}
+              onHover={(flight) => setStableHover("flight", flight)}
+              onSelect={selectFlight}
+            />
+          </div>
+        ))}
       </div>
 
       <AnimatePresence mode="wait">

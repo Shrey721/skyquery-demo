@@ -1,6 +1,6 @@
 "use client";
 
-import { motion, useInView, AnimatePresence } from "framer-motion";
+import { motion, useInView, AnimatePresence, useReducedMotion } from "framer-motion";
 import { useRef, useState, useEffect, useCallback } from "react";
 import {
   Database,
@@ -35,12 +35,16 @@ const dataSources = [
 ];
 
 function Step1Demo() {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const isInView = useInView(containerRef, { amount: 0.1 });
   const [phase, setPhase] = useState(0);
   const [connectedSources, setConnectedSources] = useState<number[]>([]);
   const [showDataFlow, setShowDataFlow] = useState(false);
 
   // Animation loop
   useEffect(() => {
+    if (!isInView) return;
+
     const runAnimation = () => {
       setPhase(0);
       setConnectedSources([]);
@@ -62,10 +66,10 @@ function Step1Demo() {
     runAnimation();
     const interval = setInterval(runAnimation, 10000);
     return () => clearInterval(interval);
-  }, []);
+  }, [isInView]);
 
   return (
-    <div className="relative h-full min-h-[400px] flex items-center justify-center p-6">
+    <div ref={containerRef} className="relative h-full min-h-[400px] flex items-center justify-center p-6">
       {/* Background grid */}
       <div className="absolute inset-0 opacity-20">
         <div
@@ -242,6 +246,8 @@ function Step1Demo() {
 // ============================================================================
 
 function Step2Demo() {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const isInView = useInView(containerRef, { amount: 0.1 });
   const query = "Show ATL airport performance";
   const [typedText, setTypedText] = useState("");
   const [phase, setPhase] = useState<
@@ -249,15 +255,26 @@ function Step2Demo() {
   >("idle");
 
   useEffect(() => {
+    if (!isInView) return;
+
+    let typeInterval: any;
+    let t1: any, t2: any, t3: any, t4: any, t5: any;
+
     const runAnimation = () => {
       setTypedText("");
       setPhase("idle");
+      if (typeInterval) clearInterval(typeInterval);
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+      clearTimeout(t4);
+      clearTimeout(t5);
 
       // Start typing
-      setTimeout(() => {
+      t1 = setTimeout(() => {
         setPhase("typing");
         let i = 0;
-        const typeInterval = setInterval(() => {
+        typeInterval = setInterval(() => {
           if (i < query.length) {
             setTypedText(query.slice(0, i + 1));
             i++;
@@ -268,19 +285,27 @@ function Step2Demo() {
       }, 500);
 
       // Send query
-      setTimeout(() => setPhase("sending"), 2500);
-      setTimeout(() => setPhase("loading"), 2800);
-      setTimeout(() => setPhase("sql"), 4000);
-      setTimeout(() => setPhase("results"), 5500);
+      t2 = setTimeout(() => setPhase("sending"), 2500);
+      t3 = setTimeout(() => setPhase("loading"), 2800);
+      t4 = setTimeout(() => setPhase("sql"), 4000);
+      t5 = setTimeout(() => setPhase("results"), 5500);
     };
 
     runAnimation();
     const interval = setInterval(runAnimation, 12000);
-    return () => clearInterval(interval);
-  }, []);
+    return () => {
+      clearInterval(interval);
+      if (typeInterval) clearInterval(typeInterval);
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+      clearTimeout(t4);
+      clearTimeout(t5);
+    };
+  }, [isInView]);
 
   return (
-    <div className="relative h-full min-h-[400px] flex flex-col p-6">
+    <div ref={containerRef} className="relative h-full min-h-[400px] flex flex-col p-6">
       {/* Chat interface */}
       <div className="flex-1 flex flex-col rounded-2xl bg-[#0a141c] border border-white/10 overflow-hidden">
         {/* Header */}
@@ -491,6 +516,9 @@ const airports = [
 ];
 
 function Step3Demo() {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const isInView = useInView(containerRef, { amount: 0.1 });
+  const shouldReduceMotion = useReducedMotion();
   const [activeAirport, setActiveAirport] = useState<string | null>(null);
   const [showWeather, setShowWeather] = useState(false);
   const [aircraftPositions, setAircraftPositions] = useState<
@@ -504,6 +532,8 @@ function Step3Demo() {
       { id: 2, progress: 0.3, route: 1 },
       { id: 3, progress: 0.6, route: 2 },
     ]);
+
+    if (!isInView || shouldReduceMotion) return;
 
     // Show weather overlay
     const weatherTimer = setTimeout(() => setShowWeather(true), 1000);
@@ -530,7 +560,7 @@ function Step3Demo() {
       clearInterval(airportInterval);
       clearInterval(aircraftInterval);
     };
-  }, []);
+  }, [isInView, shouldReduceMotion]);
 
   const routes = [
     { from: { x: 10, y: 42 }, to: { x: 72, y: 32 } }, // SFO to JFK
@@ -539,7 +569,7 @@ function Step3Demo() {
   ];
 
   return (
-    <div className="relative h-full min-h-[400px] rounded-2xl bg-[#050a10] border border-white/10 overflow-hidden">
+    <div ref={containerRef} className="relative h-full min-h-[400px] rounded-2xl bg-[#050a10] border border-white/10 overflow-hidden">
       {/* Radar grid background */}
       <div
         className="absolute inset-0 opacity-30"
@@ -796,24 +826,39 @@ function Step3Demo() {
 // ============================================================================
 
 function Step4Demo() {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const isInView = useInView(containerRef, { amount: 0.1 });
   const [phase, setPhase] = useState(0);
   const [chartProgress, setChartProgress] = useState(0);
   const [riskScore, setRiskScore] = useState(0);
 
   useEffect(() => {
+    if (!isInView) return;
+
+    let chartInterval: any;
+    let scoreInterval: any;
+    let t1: any, t2: any, t3: any, t4: any, t5: any;
+
     const runAnimation = () => {
       setPhase(0);
       setChartProgress(0);
       setRiskScore(0);
+      if (chartInterval) clearInterval(chartInterval);
+      if (scoreInterval) clearInterval(scoreInterval);
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+      clearTimeout(t4);
+      clearTimeout(t5);
 
       // Phase 1: Start analysis
-      setTimeout(() => setPhase(1), 500);
+      t1 = setTimeout(() => setPhase(1), 500);
 
       // Phase 2: Animate chart
-      setTimeout(() => {
+      t2 = setTimeout(() => {
         setPhase(2);
         let progress = 0;
-        const chartInterval = setInterval(() => {
+        chartInterval = setInterval(() => {
           progress += 3;
           setChartProgress(Math.min(progress, 100));
           if (progress >= 100) clearInterval(chartInterval);
@@ -821,13 +866,13 @@ function Step4Demo() {
       }, 1500);
 
       // Phase 3: Show cards
-      setTimeout(() => setPhase(3), 3500);
+      t3 = setTimeout(() => setPhase(3), 3500);
 
       // Phase 4: Update risk score
-      setTimeout(() => {
+      t4 = setTimeout(() => {
         setPhase(4);
         let score = 0;
-        const scoreInterval = setInterval(() => {
+        scoreInterval = setInterval(() => {
           score += 2;
           setRiskScore(Math.min(score, 72));
           if (score >= 72) clearInterval(scoreInterval);
@@ -835,13 +880,22 @@ function Step4Demo() {
       }, 4500);
 
       // Phase 5: Show insights
-      setTimeout(() => setPhase(5), 6000);
+      t5 = setTimeout(() => setPhase(5), 6000);
     };
 
     runAnimation();
     const interval = setInterval(runAnimation, 14000);
-    return () => clearInterval(interval);
-  }, []);
+    return () => {
+      clearInterval(interval);
+      if (chartInterval) clearInterval(chartInterval);
+      if (scoreInterval) clearInterval(scoreInterval);
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+      clearTimeout(t4);
+      clearTimeout(t5);
+    };
+  }, [isInView]);
 
   // Real aviation performance data for the trend line
   const trendData = [
@@ -855,37 +909,36 @@ function Step4Demo() {
     { month: "Aug", onTime: 92, delayed: 5, cancelled: 3 },
   ];
 
+  // Fixed pixel coordinate system – avoids preserveAspectRatio="none" distortion
+  const SVG_W = 480;
+  const SVG_H = 130;
+  const PAD = { top: 22, bottom: 10, left: 4, right: 20 };
+  const plotW = SVG_W - PAD.left - PAD.right;
+  const plotH = SVG_H - PAD.top - PAD.bottom;
   const maxValue = 100;
-  const chartHeight = 160;
-  const chartWidth = 100; // percentage
+  // chartHeight kept for grid-line helper (pixel height of the rendered SVG div)
+  const chartHeight = 150;
 
-  // Generate SVG path for smooth line
+  const ptX = (i: number) => PAD.left + (i / (trendData.length - 1)) * plotW;
+  const ptY = (val: number) => PAD.top + (1 - val / maxValue) * plotH;
+
+  // Generate smooth bezier path through visible data points
   const generatePath = (data: number[], progress: number) => {
-    const visiblePoints = Math.ceil((data.length * progress) / 100);
-    const points = data.slice(0, visiblePoints);
+    const visibleCount = Math.ceil((data.length * progress) / 100);
+    const points = data.slice(0, visibleCount);
     if (points.length < 2) return "";
-    
-    const stepX = chartWidth / (data.length - 1);
-    
-    let path = `M 0 ${chartHeight - (points[0] / maxValue) * chartHeight}`;
-    
+    let path = `M ${ptX(0)} ${ptY(points[0])}`;
     for (let i = 1; i < points.length; i++) {
-      const x = i * stepX;
-      const y = chartHeight - (points[i] / maxValue) * chartHeight;
-      const prevX = (i - 1) * stepX;
-      const prevY = chartHeight - (points[i - 1] / maxValue) * chartHeight;
-      
-      // Bezier curve for smooth line
-      const cpX1 = prevX + stepX * 0.4;
-      const cpX2 = x - stepX * 0.4;
-      path += ` C ${cpX1} ${prevY}, ${cpX2} ${y}, ${x} ${y}`;
+      const x0 = ptX(i - 1), y0 = ptY(points[i - 1]);
+      const x1 = ptX(i),     y1 = ptY(points[i]);
+      const cpx = (x0 + x1) / 2;
+      path += ` C ${cpx} ${y0}, ${cpx} ${y1}, ${x1} ${y1}`;
     }
-    
     return path;
   };
 
   return (
-    <div className="relative h-full min-h-[450px] p-5 space-y-4">
+    <div ref={containerRef} className="relative h-full min-h-[450px] p-5 space-y-4">
       {/* Analysis header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -924,22 +977,12 @@ function Step4Demo() {
         )}
       </div>
 
-      {/* Main chart area - Animated Line Graph */}
-      <div className="rounded-xl bg-[#060d14] border border-white/10 p-4 relative overflow-hidden">
-        {/* Subtle grid pattern */}
-        <div 
-          className="absolute inset-0 opacity-30"
-          style={{
-            backgroundImage: `
-              linear-gradient(to right, rgba(255,255,255,0.03) 1px, transparent 1px),
-              linear-gradient(to bottom, rgba(255,255,255,0.03) 1px, transparent 1px)
-            `,
-            backgroundSize: '40px 32px'
-          }}
-        />
+      {/* Main chart area */}
+      <div className="rounded-xl border border-white/10 relative" style={{ background: "linear-gradient(180deg, #1a1130 0%, #0d0a1f 60%, #06050f 100%)" }}>
 
-        {/* Y-axis labels */}
-        <div className="absolute left-2 top-4 bottom-10 flex flex-col justify-between text-[9px] text-white/30">
+        {/* Y-axis labels – positioned over the chart */}
+        <div className="absolute left-2 flex flex-col justify-between text-[9px] text-white/30 pointer-events-none z-10"
+          style={{ top: 12, height: chartHeight }}>
           <span>100%</span>
           <span>75%</span>
           <span>50%</span>
@@ -947,41 +990,74 @@ function Step4Demo() {
           <span>0%</span>
         </div>
 
-        {/* Chart SVG */}
-        <div className="relative ml-8 mr-2" style={{ height: chartHeight }}>
+        {/* Chart SVG – fixed pixel viewBox, no aspect distortion */}
+        <div className="relative ml-8 mr-1 mt-3 mb-0" style={{ height: chartHeight }}>
           <svg
-            viewBox={`0 0 ${chartWidth} ${chartHeight}`}
-            className="w-full h-full overflow-visible"
-            preserveAspectRatio="none"
+            viewBox={`0 0 ${SVG_W} ${SVG_H}`}
+            width="100%"
+            height={chartHeight}
+            style={{ overflow: "visible" }}
           >
-            {/* Gradient definitions */}
             <defs>
-              <linearGradient id="lineGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                <stop offset="0%" stopColor="#22d3ee" />
-                <stop offset="50%" stopColor="#a78bfa" />
+              <linearGradient id="lineGradientV2" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%"   stopColor="#22d3ee" />
+                <stop offset="45%"  stopColor="#a78bfa" />
+                <stop offset="75%"  stopColor="#a78bfa" />
                 <stop offset="100%" stopColor="#22d3ee" />
               </linearGradient>
-              <linearGradient id="areaGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-                <stop offset="0%" stopColor="#a78bfa" stopOpacity="0.3" />
-                <stop offset="100%" stopColor="#a78bfa" stopOpacity="0" />
+              <linearGradient id="areaGradientV2" x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%"   stopColor="#7c3aed" stopOpacity="0.4" />
+                <stop offset="60%"  stopColor="#4c1d95" stopOpacity="0.15" />
+                <stop offset="100%" stopColor="#1e1040" stopOpacity="0" />
               </linearGradient>
-              <filter id="glow">
-                <feGaussianBlur stdDeviation="2" result="coloredBlur" />
+              {/* Subtle glow on the line only – low blur */}
+              <filter id="lineGlowV2" x="-2%" y="-80%" width="104%" height="260%">
+                <feGaussianBlur stdDeviation="1.2" result="blur" />
                 <feMerge>
-                  <feMergeNode in="coloredBlur" />
+                  <feMergeNode in="blur" />
                   <feMergeNode in="SourceGraphic" />
                 </feMerge>
               </filter>
             </defs>
 
-            {/* Area fill under the line */}
+            {/* Horizontal grid lines */}
+            {[0, 25, 50, 75, 100].map((v) => (
+              <line
+                key={v}
+                x1={PAD.left} x2={SVG_W - PAD.right}
+                y1={ptY(v)}   y2={ptY(v)}
+                stroke="rgba(255,255,255,0.06)" strokeWidth="0.5"
+              />
+            ))}
+
+            {/* Area fill */}
+            {phase >= 2 && (() => {
+              const visibleCount = Math.ceil((trendData.length * chartProgress) / 100);
+              const lastI = Math.max(0, visibleCount - 1);
+              const areaPath = `${generatePath(trendData.map(d => d.onTime), chartProgress)} L ${ptX(lastI)} ${ptY(0)} L ${ptX(0)} ${ptY(0)} Z`;
+              return (
+                <motion.path
+                  d={areaPath}
+                  fill="url(#areaGradientV2)"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ duration: 0.8 }}
+                />
+              );
+            })()}
+
+            {/* Soft glow behind the line */}
             {phase >= 2 && (
               <motion.path
-                d={`${generatePath(trendData.map(d => d.onTime), chartProgress)} L ${((Math.ceil((trendData.length * chartProgress) / 100) - 1) / (trendData.length - 1)) * chartWidth} ${chartHeight} L 0 ${chartHeight} Z`}
-                fill="url(#areaGradient)"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ duration: 0.5 }}
+                d={generatePath(trendData.map(d => d.onTime), chartProgress)}
+                fill="none"
+                stroke="#a78bfa"
+                strokeWidth="3"
+                strokeLinecap="round"
+                initial={{ pathLength: 0, opacity: 0 }}
+                animate={{ pathLength: 1, opacity: 0.28 }}
+                transition={{ duration: 2, ease: "easeOut" }}
+                style={{ filter: "blur(3px)" }}
               />
             )}
 
@@ -990,90 +1066,76 @@ function Step4Demo() {
               <motion.path
                 d={generatePath(trendData.map(d => d.onTime), chartProgress)}
                 fill="none"
-                stroke="url(#lineGradient)"
-                strokeWidth="2.5"
+                stroke="url(#lineGradientV2)"
+                strokeWidth="1.5"
                 strokeLinecap="round"
-                filter="url(#glow)"
+                filter="url(#lineGlowV2)"
                 initial={{ pathLength: 0, opacity: 0 }}
                 animate={{ pathLength: 1, opacity: 1 }}
                 transition={{ duration: 2, ease: "easeOut" }}
               />
             )}
 
-            {/* Data points */}
+            {/* Data points – properly sized in pixel space */}
             {phase >= 2 && trendData.slice(0, Math.ceil((trendData.length * chartProgress) / 100)).map((data, i) => {
-              const x = (i / (trendData.length - 1)) * chartWidth;
-              const y = chartHeight - (data.onTime / maxValue) * chartHeight;
+              const cx = ptX(i);
+              const cy = ptY(data.onTime);
               return (
                 <motion.g key={i}>
-                  {/* Outer glow */}
+                  {/* Animated pulse halo */}
                   <motion.circle
-                    cx={x}
-                    cy={y}
-                    r="6"
+                    cx={cx} cy={cy} r={7}
                     fill="none"
                     stroke="#a78bfa"
-                    strokeWidth="1"
-                    initial={{ opacity: 0, scale: 0 }}
-                    animate={{ opacity: [0, 0.5, 0], scale: [0.5, 1.5, 2] }}
-                    transition={{ 
-                      delay: i * 0.15 + 0.5, 
-                      duration: 1.5, 
-                      repeat: Infinity,
-                      repeatDelay: 3
-                    }}
+                    strokeWidth="0.8"
+                    initial={{ opacity: 0, scale: 0.6 }}
+                    animate={{ opacity: [0, 0.4, 0], scale: [0.8, 1.5, 1.9] }}
+                    transition={{ delay: i * 0.15 + 0.7, duration: 2, repeat: Infinity, repeatDelay: 2.5 }}
                   />
-                  {/* Main point */}
+                  {/* Hollow ring */}
                   <motion.circle
-                    cx={x}
-                    cy={y}
-                    r="4"
-                    fill="#0f172a"
+                    cx={cx} cy={cy} r={4}
+                    fill="rgba(13,10,31,0.92)"
                     stroke="#a78bfa"
-                    strokeWidth="2"
+                    strokeWidth="1.2"
                     initial={{ opacity: 0, scale: 0 }}
                     animate={{ opacity: 1, scale: 1 }}
-                    transition={{ delay: i * 0.15 + 0.3, type: "spring" }}
+                    transition={{ delay: i * 0.12 + 0.3, type: "spring", stiffness: 320 }}
+                  />
+                  {/* Centre dot */}
+                  <motion.circle
+                    cx={cx} cy={cy} r={1.5}
+                    fill="#c4b5fd"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ delay: i * 0.12 + 0.5 }}
                   />
                 </motion.g>
               );
             })}
 
-            {/* Current value indicator */}
-            {phase >= 3 && (
-              <motion.g
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 0.5 }}
-              >
-                <rect
-                  x={((trendData.length - 1) / (trendData.length - 1)) * chartWidth - 18}
-                  y={chartHeight - (trendData[trendData.length - 1].onTime / maxValue) * chartHeight - 28}
-                  width="36"
-                  height="20"
-                  rx="4"
-                  fill="#a78bfa"
-                />
-                <text
-                  x={((trendData.length - 1) / (trendData.length - 1)) * chartWidth}
-                  y={chartHeight - (trendData[trendData.length - 1].onTime / maxValue) * chartHeight - 14}
-                  textAnchor="middle"
-                  fill="white"
-                  fontSize="9"
-                  fontWeight="bold"
-                >
-                  {trendData[trendData.length - 1].onTime}%
-                </text>
-              </motion.g>
-            )}
+            {/* Value badge on last visible point */}
+            {phase >= 3 && (() => {
+              const lastIdx = trendData.length - 1;
+              const bx = ptX(lastIdx);
+              const by = ptY(trendData[lastIdx].onTime);
+              return (
+                <motion.g initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.4 }}>
+                  <rect x={bx - 16} y={by - 26} width="32" height="16" rx="4" fill="#7c3aed" />
+                  <text x={bx} y={by - 14} textAnchor="middle" fill="white" fontSize="7.5" fontWeight="bold">
+                    {trendData[lastIdx].onTime}%
+                  </text>
+                </motion.g>
+              );
+            })()}
           </svg>
 
-          {/* X-axis labels */}
-          <div className="flex justify-between mt-2 px-0">
+          {/* X-axis labels – aligned to SVG column positions */}
+          <div className="flex justify-between mt-1" style={{ paddingLeft: PAD.left, paddingRight: PAD.right }}>
             {trendData.map((data, i) => (
               <motion.span
                 key={data.month}
-                className="text-[9px] text-white/40"
+                className="text-[9px] text-white/35"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: phase >= 2 && i < Math.ceil((trendData.length * chartProgress) / 100) ? 1 : 0 }}
                 transition={{ delay: i * 0.1 }}
@@ -1085,17 +1147,18 @@ function Step4Demo() {
         </div>
 
         {/* Legend */}
-        <div className="flex items-center gap-4 mt-3 pt-3 border-t border-white/5">
+        <div className="flex items-center gap-4 px-3 pb-3 pt-2 border-t border-white/5 mt-2">
           <div className="flex items-center gap-2">
-            <div className="w-3 h-0.5 bg-gradient-to-r from-cyan-400 to-purple-400 rounded" />
+            <div className="w-4 h-px rounded" style={{ background: "linear-gradient(90deg, #22d3ee, #a78bfa)" }} />
             <span className="text-[10px] text-white/50">On-Time Rate</span>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
             <TrendingUp className="h-3 w-3 text-green-400" />
             <span className="text-[10px] text-green-400">+10% YoY</span>
           </div>
         </div>
       </div>
+
 
       {/* Stats row */}
       <div className="grid grid-cols-4 gap-2">

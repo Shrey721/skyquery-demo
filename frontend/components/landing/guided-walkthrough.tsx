@@ -1,6 +1,6 @@
 "use client";
 
-import { motion, useInView, AnimatePresence } from "framer-motion";
+import { motion, useInView, AnimatePresence, useReducedMotion } from "framer-motion";
 import { useRef, useState, useEffect, useCallback } from "react";
 import {
   Database,
@@ -35,12 +35,16 @@ const dataSources = [
 ];
 
 function Step1Demo() {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const isInView = useInView(containerRef, { amount: 0.1 });
   const [phase, setPhase] = useState(0);
   const [connectedSources, setConnectedSources] = useState<number[]>([]);
   const [showDataFlow, setShowDataFlow] = useState(false);
 
   // Animation loop
   useEffect(() => {
+    if (!isInView) return;
+
     const runAnimation = () => {
       setPhase(0);
       setConnectedSources([]);
@@ -62,10 +66,10 @@ function Step1Demo() {
     runAnimation();
     const interval = setInterval(runAnimation, 10000);
     return () => clearInterval(interval);
-  }, []);
+  }, [isInView]);
 
   return (
-    <div className="relative h-full min-h-[400px] flex items-center justify-center p-6">
+    <div ref={containerRef} className="relative h-full min-h-[400px] flex items-center justify-center p-6">
       {/* Background grid */}
       <div className="absolute inset-0 opacity-20">
         <div
@@ -242,6 +246,8 @@ function Step1Demo() {
 // ============================================================================
 
 function Step2Demo() {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const isInView = useInView(containerRef, { amount: 0.1 });
   const query = "Show ATL airport performance";
   const [typedText, setTypedText] = useState("");
   const [phase, setPhase] = useState<
@@ -249,15 +255,26 @@ function Step2Demo() {
   >("idle");
 
   useEffect(() => {
+    if (!isInView) return;
+
+    let typeInterval: any;
+    let t1: any, t2: any, t3: any, t4: any, t5: any;
+
     const runAnimation = () => {
       setTypedText("");
       setPhase("idle");
+      if (typeInterval) clearInterval(typeInterval);
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+      clearTimeout(t4);
+      clearTimeout(t5);
 
       // Start typing
-      setTimeout(() => {
+      t1 = setTimeout(() => {
         setPhase("typing");
         let i = 0;
-        const typeInterval = setInterval(() => {
+        typeInterval = setInterval(() => {
           if (i < query.length) {
             setTypedText(query.slice(0, i + 1));
             i++;
@@ -268,19 +285,27 @@ function Step2Demo() {
       }, 500);
 
       // Send query
-      setTimeout(() => setPhase("sending"), 2500);
-      setTimeout(() => setPhase("loading"), 2800);
-      setTimeout(() => setPhase("sql"), 4000);
-      setTimeout(() => setPhase("results"), 5500);
+      t2 = setTimeout(() => setPhase("sending"), 2500);
+      t3 = setTimeout(() => setPhase("loading"), 2800);
+      t4 = setTimeout(() => setPhase("sql"), 4000);
+      t5 = setTimeout(() => setPhase("results"), 5500);
     };
 
     runAnimation();
     const interval = setInterval(runAnimation, 12000);
-    return () => clearInterval(interval);
-  }, []);
+    return () => {
+      clearInterval(interval);
+      if (typeInterval) clearInterval(typeInterval);
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+      clearTimeout(t4);
+      clearTimeout(t5);
+    };
+  }, [isInView]);
 
   return (
-    <div className="relative h-full min-h-[400px] flex flex-col p-6">
+    <div ref={containerRef} className="relative h-full min-h-[400px] flex flex-col p-6">
       {/* Chat interface */}
       <div className="flex-1 flex flex-col rounded-2xl bg-[#0a141c] border border-white/10 overflow-hidden">
         {/* Header */}
@@ -596,6 +621,20 @@ function Step3Demo() {
   const progressRef = useRef([0, 0.22, 0.48, 0.7, 0.86]);
   const refreshMapSizeRef = useRef<(() => void) | null>(null);
   const [pinnedFlightId, setPinnedFlightId] = useState<number | null>(null);
+  
+  const isInView = useInView(mapHostRef, { amount: 0.1 });
+  const shouldReduceMotion = useReducedMotion();
+
+  const isInViewRef = useRef(false);
+  const shouldReduceMotionRef = useRef(shouldReduceMotion);
+
+  useEffect(() => {
+    isInViewRef.current = isInView;
+  }, [isInView]);
+
+  useEffect(() => {
+    shouldReduceMotionRef.current = shouldReduceMotion;
+  }, [shouldReduceMotion]);
 
   useEffect(() => {
     let cancelled = false;
@@ -698,41 +737,7 @@ function Step3Demo() {
           iconElement: marker.getElement()?.querySelector("[data-tour-plane-icon]") as SVGElement | null,
         };
       });
-
-      /*
-      Aircraft icons render in the stable DOM overlay below. Keeping the old
-      Leaflet marker implementation commented here would re-create marker
-      internals during RAF updates and can cause visible flicker.
-      aircraftMarkersRef.current = routeNetwork.map((route, index) => {
-        const point = interpolateLatLng(route, progressRef.current[index] ?? 0);
-        const heading = routeHeading(map, route, progressRef.current[index] ?? 0);
-        const color = statusColor(route.status);
-        const marker = L.marker([point.lat, point.lng], {
-          icon: L.divIcon({
-            className: "skyquery-tour-aircraft-marker",
-            html: planeIconHtml(heading, route.status),
-            iconAnchor: [15, 15],
-            iconSize: [30, 30],
-          }),
-          keyboard: false,
-          pane: "tourAircraft",
-          riseOnHover: true,
-        })
-          .bindTooltip(
-            `<div class="discover-airport-tooltip"><strong>${escapeHtml(route.flight)}</strong><span>${route.from} → ${route.to}</span><span style="color:${color}">${statusLabel(route.status)}</span><span>ETA ${escapeHtml(route.eta)}</span></div>`,
-            { className: "discover-airport-tooltip-shell", direction: "top", offset: [0, -12], opacity: 0.96, sticky: true }
-          )
-          .bindPopup(
-            `<div class="discover-airport-popup"><strong>${escapeHtml(route.flight)}</strong><span>${route.from} → ${route.to}</span><span style="color:${color}">${statusLabel(route.status)}</span><span>ETA ${escapeHtml(route.eta)}</span></div>`,
-            { className: "discover-airport-popup-shell" }
-          )
-          .addTo(map);
-        return {
-          marker,
-          iconElement: marker.getElement()?.querySelector("[data-tour-plane-icon]") as SVGElement | null,
-        };
-      });
-      */
+      // Fit map bounds
 
       const bounds = L.latLngBounds(airports.map((airport) => [airport.lat, airport.lng]));
       map.fitBounds(bounds, { padding: [42, 42] });
@@ -742,18 +747,20 @@ function Step3Demo() {
       window.addEventListener("resize", refreshMapSize);
 
       const animate = () => {
-        aircraftMarkersRef.current.forEach((aircraft, index) => {
-          const route = routeNetwork[index];
-          progressRef.current[index] = (progressRef.current[index] + 0.0017 + index * 0.00012) % 1;
-          const point = interpolateLatLng(route, progressRef.current[index]);
-          const heading = routeHeading(map, route, progressRef.current[index]);
-          aircraft.marker.setLatLng([point.lat, point.lng]);
-          const iconElement =
-            aircraft.iconElement ??
-            (aircraft.marker.getElement()?.querySelector("[data-tour-plane-icon]") as SVGElement | null);
-          aircraft.iconElement = iconElement;
-          if (iconElement) iconElement.style.transform = `rotate(${heading}deg)`;
-        });
+        if (isInViewRef.current && !shouldReduceMotionRef.current) {
+          aircraftMarkersRef.current.forEach((aircraft, index) => {
+            const route = routeNetwork[index];
+            progressRef.current[index] = (progressRef.current[index] + 0.0017 + index * 0.00012) % 1;
+            const point = interpolateLatLng(route, progressRef.current[index]);
+            const heading = routeHeading(map, route, progressRef.current[index]);
+            aircraft.marker.setLatLng([point.lat, point.lng]);
+            const iconElement =
+              aircraft.iconElement ??
+              (aircraft.marker.getElement()?.querySelector("[data-tour-plane-icon]") as SVGElement | null);
+            aircraft.iconElement = iconElement;
+            if (iconElement) iconElement.style.transform = `rotate(${heading}deg)`;
+          });
+        }
         animationFrame = requestAnimationFrame(animate);
       };
 
@@ -861,24 +868,39 @@ function Step3Demo() {
 // ============================================================================
 
 function Step4Demo() {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const isInView = useInView(containerRef, { amount: 0.1 });
   const [phase, setPhase] = useState(0);
   const [chartProgress, setChartProgress] = useState(0);
   const [riskScore, setRiskScore] = useState(0);
 
   useEffect(() => {
+    if (!isInView) return;
+
+    let chartInterval: any;
+    let scoreInterval: any;
+    let t1: any, t2: any, t3: any, t4: any, t5: any;
+
     const runAnimation = () => {
       setPhase(0);
       setChartProgress(0);
       setRiskScore(0);
+      if (chartInterval) clearInterval(chartInterval);
+      if (scoreInterval) clearInterval(scoreInterval);
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+      clearTimeout(t4);
+      clearTimeout(t5);
 
       // Phase 1: Start analysis
-      setTimeout(() => setPhase(1), 500);
+      t1 = setTimeout(() => setPhase(1), 500);
 
       // Phase 2: Animate chart
-      setTimeout(() => {
+      t2 = setTimeout(() => {
         setPhase(2);
         let progress = 0;
-        const chartInterval = setInterval(() => {
+        chartInterval = setInterval(() => {
           progress += 3;
           setChartProgress(Math.min(progress, 100));
           if (progress >= 100) clearInterval(chartInterval);
@@ -886,13 +908,13 @@ function Step4Demo() {
       }, 1500);
 
       // Phase 3: Show cards
-      setTimeout(() => setPhase(3), 3500);
+      t3 = setTimeout(() => setPhase(3), 3500);
 
       // Phase 4: Update risk score
-      setTimeout(() => {
+      t4 = setTimeout(() => {
         setPhase(4);
         let score = 0;
-        const scoreInterval = setInterval(() => {
+        scoreInterval = setInterval(() => {
           score += 2;
           setRiskScore(Math.min(score, 72));
           if (score >= 72) clearInterval(scoreInterval);
@@ -900,13 +922,22 @@ function Step4Demo() {
       }, 4500);
 
       // Phase 5: Show insights
-      setTimeout(() => setPhase(5), 6000);
+      t5 = setTimeout(() => setPhase(5), 6000);
     };
 
     runAnimation();
     const interval = setInterval(runAnimation, 14000);
-    return () => clearInterval(interval);
-  }, []);
+    return () => {
+      clearInterval(interval);
+      if (chartInterval) clearInterval(chartInterval);
+      if (scoreInterval) clearInterval(scoreInterval);
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+      clearTimeout(t4);
+      clearTimeout(t5);
+    };
+  }, [isInView]);
 
   // Real aviation performance data for the trend line
   const trendData = [
@@ -949,7 +980,7 @@ function Step4Demo() {
   };
 
   return (
-    <div className="relative h-full min-h-[450px] p-5 space-y-4">
+    <div ref={containerRef} className="relative h-full min-h-[450px] p-5 space-y-4">
       {/* Analysis header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
