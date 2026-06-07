@@ -153,6 +153,17 @@ const generalWeatherQuery = parseDiscoverQuery("show flights affected by weather
 assert.equal(generalWeatherQuery.impactType, "general_weather")
 assert.equal(buildWeatherImpactAssessment(generalWeatherQuery, { operationalRisk: "Medium" }, 3).impactedCount, 3)
 
+const scannerDelhi = parseDiscoverQuery("show close calls near Delhi")
+assert.equal(normalizeLocationQuery("show close calls near Delhi"), "delhi")
+assert.equal(scannerDelhi.scannerMode, true)
+assert.equal(scannerDelhi.fetchFlights, false)
+assert.equal(scannerDelhi.fetchWeather, false)
+assert.equal(scannerDelhi.queryPlan.intent, "airspace_scanner")
+
+const scannerAtl = parseDiscoverQuery("airspace scanner near ATL")
+assert.equal(scannerAtl.scannerMode, true)
+assert.equal(normalizeLocationQuery("airspace scanner near ATL"), "atl")
+
 assert.equal(
   requestedWeatherMetricSummary(tempTokyo, { temperature: 22 }, 5),
   "Temperature is 22 C. 5 flights in this area.",

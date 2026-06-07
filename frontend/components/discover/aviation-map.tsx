@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react"
 import type { LiveAircraft, MapBounds } from "@/lib/public-flights-api"
 import type { NearbyAirport } from "@/lib/nearby-airports-api"
+import type { AirspaceConflictPair, ScannerRiskLevel } from "@/lib/airspace-scanner"
 
 interface AviationMapProps {
   aircraft: LiveAircraft[]
@@ -13,6 +14,8 @@ interface AviationMapProps {
   fitLocations?: { locations: Array<{ latitude: number; longitude: number }>; nonce: number } | null
   airports?: NearbyAirport[]
   showAirports?: boolean
+  scannerMode?: boolean
+  scannerConflicts?: AirspaceConflictPair[]
 }
 
 type TrafficView = "density" | "regional" | "aircraft"
@@ -100,6 +103,49 @@ function airportPopup(airport: NearbyAirport) {
   `
 }
 
+function scannerColor(risk: ScannerRiskLevel) {
+  if (risk === "Critical") return "#ef4444"
+  if (risk === "High") return "#f97316"
+  if (risk === "Medium") return "#f59e0b"
+  return "#38bdf8"
+}
+
+function scannerIcon(L: any, flight: LiveAircraft, risk: ScannerRiskLevel) {
+  const heading = flight.heading != null && Number.isFinite(flight.heading) ? flight.heading : 0
+  const color = scannerColor(risk)
+  return L.divIcon({
+    className: "discover-marker-shell",
+    html: `<span class="discover-scanner-plane" style="--scanner-color:${color};transform:rotate(${heading}deg)" aria-hidden="true">&#9992;</span>`,
+    iconSize: [34, 34],
+    iconAnchor: [17, 17],
+  })
+}
+
+function formatFlight(flight: LiveAircraft) {
+  return escapeHtml(flight.callsign || flight.icao24.toUpperCase())
+}
+
+function scannerPopup(pair: AirspaceConflictPair) {
+  const weather = pair.weatherContext.unavailable
+    ? "Weather context unavailable. Scanner is using aircraft separation only."
+    : pair.weatherContext.factors.length
+      ? `Weather factor: ${escapeHtml(pair.weatherContext.factors.join(", "))}`
+      : "Weather factor: none detected"
+  return `
+    <div class="discover-airport-popup">
+      <strong>Possible proximity conflict</strong>
+      <span>Flight A: ${formatFlight(pair.aircraftA)} / ${Math.round(pair.altitudeA ?? 0).toLocaleString()} ft / ${pair.aircraftA.speed_kts == null ? "speed unavailable" : `${Math.round(pair.aircraftA.speed_kts)} kt`}</span>
+      <span>Flight B: ${formatFlight(pair.aircraftB)} / ${Math.round(pair.altitudeB ?? 0).toLocaleString()} ft / ${pair.aircraftB.speed_kts == null ? "speed unavailable" : `${Math.round(pair.aircraftB.speed_kts)} kt`}</span>
+      <span>Distance: ${pair.horizontalKm.toFixed(1)} km</span>
+      <span>Vertical separation: ${Math.round(pair.verticalFt).toLocaleString()} ft</span>
+      <span>Base proximity risk: ${pair.baseRisk}</span>
+      <span>${weather}</span>
+      <span>Weather-adjusted risk: ${pair.weatherAdjustedRisk}</span>
+      <span>This is a proximity screen from public feeds, not ATC conflict prediction.</span>
+    </div>
+  `
+}
+
 function escapeHtml(value: string) {
   return value
     .replace(/&/g, "&amp;")
@@ -130,16 +176,19 @@ function sampleAircraft(map: any, aircraft: LiveAircraft[], cap: number, cellSiz
   return sampled
 }
 
-export function AviationMap({ aircraft, selectedAircraft, onSelectAircraft, onBoundsChange, focusLocation, fitLocations, airports = [], showAirports = false }: AviationMapProps) {
+export function AviationMap({ aircraft, selectedAircraft, onSelectAircraft, onBoundsChange, focusLocation, fitLocations, airports = [], showAirports = false, scannerMode = false, scannerConflicts = [] }: AviationMapProps) {
   const hostRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<any>(null)
   const leafletRef = useRef<any>(null)
   const densityLayerRef = useRef<any>(null)
   const aircraftLayerRef = useRef<any>(null)
   const airportLayerRef = useRef<any>(null)
+  const scannerLayerRef = useRef<any>(null)
   const aircraftRef = useRef(aircraft)
   const airportsRef = useRef(airports)
   const showAirportsRef = useRef(showAirports)
+  const scannerModeRef = useRef(scannerMode)
+  const scannerConflictsRef = useRef(scannerConflicts)
   const fitLocationsRef = useRef(fitLocations)
   const selectedRef = useRef(selectedAircraft)
   const onSelectRef = useRef(onSelectAircraft)
@@ -152,11 +201,13 @@ export function AviationMap({ aircraft, selectedAircraft, onSelectAircraft, onBo
     aircraftRef.current = aircraft
     airportsRef.current = airports
     showAirportsRef.current = showAirports
+    scannerModeRef.current = scannerMode
+    scannerConflictsRef.current = scannerConflicts
     selectedRef.current = selectedAircraft
     onSelectRef.current = onSelectAircraft
     onBoundsRef.current = onBoundsChange
     renderRef.current()
-  }, [aircraft, airports, onBoundsChange, onSelectAircraft, selectedAircraft, showAirports])
+  }, [aircraft, airports, onBoundsChange, onSelectAircraft, scannerConflicts, scannerMode, selectedAircraft, showAirports])
 
   useEffect(() => {
     const map = mapRef.current
@@ -184,7 +235,8 @@ export function AviationMap({ aircraft, selectedAircraft, onSelectAircraft, onBo
     const densityLayer = densityLayerRef.current
     const aircraftLayer = aircraftLayerRef.current
     const airportLayer = airportLayerRef.current
-    if (!L || !map || !densityLayer || !aircraftLayer || !airportLayer) return
+    const scannerLayer = scannerLayerRef.current
+    if (!L || !map || !densityLayer || !aircraftLayer || !airportLayer || !scannerLayer) return
 
     const zoom = map.getZoom()
     const view = trafficViewAtZoom(zoom)
@@ -192,6 +244,7 @@ export function AviationMap({ aircraft, selectedAircraft, onSelectAircraft, onBo
     densityLayer.clearLayers()
     aircraftLayer.clearLayers()
     airportLayer.clearLayers()
+    scannerLayer.clearLayers()
     setTrafficView(view)
 
     if (view !== "aircraft") {
@@ -222,25 +275,50 @@ export function AviationMap({ aircraft, selectedAircraft, onSelectAircraft, onBo
         })
     }
 
-    const markerAircraft = view === "density"
+    const markerAircraft = scannerModeRef.current
+      ? currentAircraft
+      : view === "density"
       ? sampleAircraft(map, currentAircraft, LOW_ZOOM_ICON_CAP, 42)
       : view === "regional"
         ? sampleAircraft(map, currentAircraft, MEDIUM_ZOOM_ICON_CAP, 26)
         : currentAircraft
-    const selectedId = view === "aircraft" ? selectedRef.current?.icao24 : undefined
+    const selectedId = view === "aircraft" || scannerModeRef.current ? selectedRef.current?.icao24 : undefined
     markerAircraft.forEach((flight) => {
       const isSelected = Boolean(selectedId && flight.icao24 === selectedId)
       const marker = L.marker([flight.latitude, flight.longitude], {
         pane: "discoverAircraft",
-        icon: planeIcon(L, flight, isSelected, view),
+        icon: planeIcon(L, flight, isSelected, scannerModeRef.current ? "aircraft" : view),
         keyboard: false,
-        interactive: view === "aircraft",
-        riseOnHover: view === "aircraft",
+        interactive: view === "aircraft" || scannerModeRef.current,
+        riseOnHover: view === "aircraft" || scannerModeRef.current,
         riseOffset: isSelected ? 1000 : 0,
       })
-      if (view === "aircraft") marker.on("click", () => onSelectRef.current(flight))
+      if (view === "aircraft" || scannerModeRef.current) marker.on("click", () => onSelectRef.current(flight))
       marker.addTo(aircraftLayer)
     })
+    if (scannerModeRef.current) {
+      scannerConflictsRef.current.forEach((pair) => {
+        const color = scannerColor(pair.weatherAdjustedRisk)
+        L.polyline([
+          [pair.aircraftA.latitude, pair.aircraftA.longitude],
+          [pair.aircraftB.latitude, pair.aircraftB.longitude],
+        ], {
+          pane: "discoverScanner",
+          color,
+          weight: pair.weatherAdjustedRisk === "Critical" ? 3 : 2,
+          opacity: 0.85,
+          dashArray: pair.weatherAdjustedRisk === "Low" ? "5 7" : undefined,
+        }).bindPopup(scannerPopup(pair), { className: "discover-airport-popup-shell" }).addTo(scannerLayer)
+        ;[pair.aircraftA, pair.aircraftB].forEach((flight) => {
+          L.marker([flight.latitude, flight.longitude], {
+            pane: "discoverScanner",
+            icon: scannerIcon(L, flight, pair.weatherAdjustedRisk),
+            keyboard: false,
+            riseOnHover: true,
+          }).bindPopup(scannerPopup(pair), { className: "discover-airport-popup-shell" }).addTo(scannerLayer)
+        })
+      })
+    }
     if (showAirportsRef.current) {
       airportsRef.current.slice(0, 10).forEach((airport) => {
         if (!Number.isFinite(airport.lat) || !Number.isFinite(airport.lon)) return
@@ -289,6 +367,9 @@ export function AviationMap({ aircraft, selectedAircraft, onSelectAircraft, onBo
       map.createPane("discoverAirports")
       const airportsPane = map.getPane("discoverAirports")
       if (airportsPane) airportsPane.style.zIndex = "450"
+      map.createPane("discoverScanner")
+      const scannerPane = map.getPane("discoverScanner")
+      if (scannerPane) scannerPane.style.zIndex = "520"
       L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
         attribution: "&copy; OpenStreetMap &copy; CARTO",
         subdomains: "abcd",
@@ -298,6 +379,7 @@ export function AviationMap({ aircraft, selectedAircraft, onSelectAircraft, onBo
       densityLayerRef.current = L.layerGroup().addTo(map)
       aircraftLayerRef.current = L.layerGroup().addTo(map)
       airportLayerRef.current = L.layerGroup().addTo(map)
+      scannerLayerRef.current = L.layerGroup().addTo(map)
       mapRef.current = map
       const pendingFit = fitLocationsRef.current
       if (pendingFit && pendingFit.locations.length >= 2) {
@@ -328,7 +410,7 @@ export function AviationMap({ aircraft, selectedAircraft, onSelectAircraft, onBo
     }
   }, [])
 
-  const modeLabel = trafficView === "density" ? "RADAR DENSITY" : trafficView === "regional" ? "REGIONAL TRAFFIC" : "AIRCRAFT"
+  const modeLabel = scannerMode ? "AIRSPACE SCANNER" : trafficView === "density" ? "RADAR DENSITY" : trafficView === "regional" ? "REGIONAL TRAFFIC" : "AIRCRAFT"
 
   return (
     <div className="relative h-full w-full">

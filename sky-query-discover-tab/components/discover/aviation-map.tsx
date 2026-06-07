@@ -35,12 +35,25 @@ export interface MapBounds {
   west: number;
 }
 
+export interface ScannerConflict {
+  id: string;
+  aircraftA: Aircraft;
+  aircraftB: Aircraft;
+  horizontalKm: number;
+  verticalFt: number;
+  baseRisk: "Low" | "Medium" | "High" | "Critical";
+  weatherAdjustedRisk: "Low" | "Medium" | "High" | "Critical";
+  weatherFactor: string;
+  nearestAirport?: string;
+}
+
 interface AviationMapProps {
   onAircraftSelect: (aircraft: Aircraft | null) => void;
   selectedAircraft: Aircraft | null;
   activeFilters: string[];
   onBoundsChange?: (bounds: MapBounds) => void;
   onAircraftListUpdate?: (aircraft: Aircraft[]) => void;
+  scannerConflicts?: ScannerConflict[];
 }
 
 // Mock aircraft data structured like OpenSky API response
@@ -63,6 +76,7 @@ const mockAircraft: Aircraft[] = [
   { id: "16", callsign: "ENY4521", icao24: "v1w2x3", lat: 39.8561, lng: -104.6737, heading: 180, altitude: 8500, speed: 180, verticalRate: -1500, originCountry: "United States", lastSeen: Date.now() - 500, onGround: false, dataSource: "adsb" },
   { id: "17", callsign: "SKW5432", icao24: "v4w5x6", lat: 33.9416, lng: -118.4085, heading: 270, altitude: 5000, speed: 160, verticalRate: -1200, originCountry: "United States", lastSeen: Date.now() - 800, onGround: false, dataSource: "adsb" },
   { id: "18", callsign: "N172SP", icao24: "y1z2a3", lat: 41.9742, lng: -87.9073, heading: 90, altitude: 3500, speed: 120, verticalRate: 500, originCountry: "United States", lastSeen: Date.now() - 1200, onGround: false, dataSource: "adsb" },
+  { id: "19", callsign: "DAL457", icao24: "scan01", lat: 33.7520, lng: -84.3920, heading: 175, altitude: 32600, speed: 468, verticalRate: -100, originCountry: "United States", lastSeen: Date.now() - 1100, onGround: false, dataSource: "opensky" },
 ];
 
 // Major US airports
@@ -140,6 +154,7 @@ export function AviationMap({
   activeFilters,
   onBoundsChange,
   onAircraftListUpdate,
+  scannerConflicts = [],
 }: AviationMapProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -148,7 +163,7 @@ export function AviationMap({
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [showLegend, setShowLegend] = useState(true);
-  const animationFrameRef = useRef<number>();
+  const animationFrameRef = useRef<number | null>(null);
   const aircraftPositionsRef = useRef<Aircraft[]>(mockAircraft);
   const flightTrailsRef = useRef<Map<string, { lat: number; lng: number }[]>>(new Map());
 
@@ -522,11 +537,44 @@ export function AviationMap({
       });
     }
 
+    if (activeFilters.includes("Airspace Scanner")) {
+      scannerConflicts.forEach((pair) => {
+        const color = pair.weatherAdjustedRisk === "Critical" ? "#ef4444" :
+          pair.weatherAdjustedRisk === "High" ? "#f97316" :
+          pair.weatherAdjustedRisk === "Medium" ? "#f59e0b" : "#38bdf8";
+        const a = latLngToCanvas(pair.aircraftA.lat, pair.aircraftA.lng, width, height);
+        const b = latLngToCanvas(pair.aircraftB.lat, pair.aircraftB.lng, width, height);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = pair.weatherAdjustedRisk === "Critical" ? 3 : 2;
+        ctx.setLineDash(pair.weatherAdjustedRisk === "Low" ? [5, 7] : []);
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        [a, b].forEach((pos) => {
+          ctx.fillStyle = "rgba(10, 10, 20, 0.9)";
+          ctx.strokeStyle = color;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(pos.x, pos.y, 15, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+        });
+        const midX = (a.x + b.x) / 2;
+        const midY = (a.y + b.y) / 2;
+        ctx.font = "bold 10px 'Geist', sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillStyle = color;
+        ctx.fillText(`${pair.weatherAdjustedRisk} proximity`, midX, midY - 8);
+      });
+    }
+
     // Notify parent of bounds change
     const bounds = calculateBounds(width, height);
     onBoundsChange?.(bounds);
 
-  }, [zoom, pan, activeFilters, selectedAircraft, latLngToCanvas, clusterAircraft, calculateBounds, onBoundsChange]);
+  }, [zoom, pan, activeFilters, selectedAircraft, latLngToCanvas, clusterAircraft, calculateBounds, onBoundsChange, scannerConflicts]);
 
   // Animation loop
   useEffect(() => {
@@ -580,23 +628,23 @@ export function AviationMap({
       const y = e.clientY - rect.top;
       const { width, height } = container.getBoundingClientRect();
 
-      let clickedAircraft: Aircraft | null = null;
+      const clicked = { aircraft: null as Aircraft | null };
       let minDistance = Infinity;
 
       aircraftPositionsRef.current.forEach((aircraft) => {
         const pos = latLngToCanvas(aircraft.lat, aircraft.lng, width, height);
         const distance = Math.sqrt((pos.x - x) ** 2 + (pos.y - y) ** 2);
         if (distance < 25 && distance < minDistance) {
-          clickedAircraft = aircraft;
+          clicked.aircraft = aircraft;
           minDistance = distance;
         }
       });
 
-      onAircraftSelect(clickedAircraft);
+      onAircraftSelect(clicked.aircraft);
       
       // Initialize trail for newly selected aircraft
-      if (clickedAircraft && !flightTrailsRef.current.has(clickedAircraft.id)) {
-        flightTrailsRef.current.set(clickedAircraft.id, [{ lat: clickedAircraft.lat, lng: clickedAircraft.lng }]);
+      if (clicked.aircraft && !flightTrailsRef.current.has(clicked.aircraft.id)) {
+        flightTrailsRef.current.set(clicked.aircraft.id, [{ lat: clicked.aircraft.lat, lng: clicked.aircraft.lng }]);
       }
     },
     [latLngToCanvas, onAircraftSelect]
@@ -722,6 +770,12 @@ export function AviationMap({
             <div className="flex items-center gap-2">
               <div className="w-2.5 h-2.5 rounded-full border-2 border-dashed border-pink-400" />
               <span className="text-xs text-muted-foreground">Enterprise Event</span>
+            </div>
+          )}
+          {activeFilters.includes("Airspace Scanner") && (
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-px bg-red-400" />
+              <span className="text-xs text-muted-foreground">Scanner Conflict</span>
             </div>
           )}
         </div>

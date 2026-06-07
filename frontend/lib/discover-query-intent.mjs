@@ -3,6 +3,7 @@ const FLIGHT_TERMS = /\b(flights?|aircraft|planes?|airspace|traffic)\b/i
 const IMPACT_TERMS = /\b(affected|impacted|storm|severe weather|bad weather|rain|heavy rain|high wind|strong wind|poor visibility|low visibility|weather affected|weather impacted|affected by weather|aviation risk)\b/i
 const AIRPORT_TERMS = /\b(airports?|nearest airport|nearby airports|major airports)\b/i
 const ENTERPRISE_TERMS = /\b(delay|delayed|on[- ]?time|performance|cancellation|cancellations|cancelled|operations|operational|historical|enterprise|throughput|airport stats|airport statistics|kpi|congestion|risk from enterprise|high risk airports?|compare)\b/i
+const AIRSPACE_SCANNER_TERMS = /\b(close calls?|close-calls?|proximity|airspace scanner|conflicts?|near miss|altitude separation|vertical separation|too close|collision risk)\b/i
 
 export function semanticEnterpriseFilter(query) {
   const text = query.trim().toLowerCase()
@@ -25,6 +26,7 @@ export function isComparisonQuery(query) {
 
 export function parseDiscoverQuery(query) {
   const text = query.trim().toLowerCase()
+  const scannerMode = AIRSPACE_SCANNER_TERMS.test(text)
   const asksImpact = IMPACT_TERMS.test(text)
   const asksSelectedAircraftAirports = /\bselected aircraft\b/.test(text) && AIRPORT_TERMS.test(text)
   const mentionsFlights = FLIGHT_TERMS.test(text)
@@ -58,11 +60,13 @@ export function parseDiscoverQuery(query) {
         : /\bbad weather\b|\bweather affected\b|\baffected by weather\b|\baviation risk\b|\brisk\b/.test(text)
           ? "general_weather"
           : null
-  const fetchFlights = needsTrino ? true : asksSelectedAircraftAirports ? false : mentionsAirports ? mentionsFlights : true
-  const fetchWeather = needsTrino ? true : mentionsAirports ? (mentionsWeather || asksImpact) : true
+  const fetchFlights = scannerMode ? false : needsTrino ? true : asksSelectedAircraftAirports ? false : mentionsAirports ? mentionsFlights : true
+  const fetchWeather = scannerMode ? false : needsTrino ? true : mentionsAirports ? (mentionsWeather || asksImpact) : true
   const fetchAirports = mentionsAirports || needsTrino
   const primarySource = needsTrino
     ? "trino"
+    : scannerMode
+      ? "opensky"
     : mentionsWeather
       ? "openmeteo"
       : mentionsAirports
@@ -78,6 +82,7 @@ export function parseDiscoverQuery(query) {
     fetchFlights,
     fetchWeather,
     fetchAirports,
+    scannerMode,
     airportMode: fetchAirports,
     selectedAircraftAirportMode: asksSelectedAircraftAirports,
     impactMode: Boolean(impactType),
@@ -85,7 +90,7 @@ export function parseDiscoverQuery(query) {
     requestedMetric,
     isWeatherOnly: mentionsWeather && !mentionsFlights && !asksImpact,
     queryPlan: {
-      intent: needsTrino ? (mentionsFlights || mentionsWeather || mentionsAirports ? "combined" : "enterprise") : mentionsWeather ? "weather" : mentionsAirports ? "airport" : "live_airspace",
+      intent: scannerMode ? "airspace_scanner" : needsTrino ? (mentionsFlights || mentionsWeather || mentionsAirports ? "combined" : "enterprise") : mentionsWeather ? "weather" : mentionsAirports ? "airport" : "live_airspace",
       primarySource,
       contextSources,
       needsTrino,

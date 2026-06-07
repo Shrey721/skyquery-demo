@@ -16,6 +16,7 @@ import { boundsAroundLocation, resolveLocationQuery } from "@/lib/location-searc
 import { buildWeatherImpactAssessment, parseDiscoverQuery, requestedWeatherMetricSummary, shouldMarkFlightsImpacted, weatherImpactSummary } from "@/lib/discover-query-intent.mjs"
 import { fetchAirportsInBounds, fetchNearbyAirports, type NearbyAirport } from "@/lib/nearby-airports-api"
 import { fetchDiscoverEnterprise, fetchDiscoverEnterpriseCandidates, type DiscoverEnterpriseResponse } from "@/lib/discover-enterprise-api"
+import { scanAirspaceConflicts } from "@/lib/airspace-scanner"
 import { logoutUser } from "@/lib/api"
 import {
   clearAuthSession,
@@ -61,6 +62,9 @@ export function DiscoverPage() {
   const [search, setSearch] = useState("")
   const [showOnGround, setShowOnGround] = useState(false)
   const [showAirports, setShowAirports] = useState(false)
+  const [scannerActive, setScannerActive] = useState(false)
+  const [scannerRegion, setScannerRegion] = useState<WeatherRegion | null>(null)
+  const [scannerBounds, setScannerBounds] = useState<MapBounds | null>(null)
   const [enterprise, setEnterprise] = useState<DiscoverEnterpriseResponse | null>(null)
   const [enterpriseLoading, setEnterpriseLoading] = useState(false)
   const [activeEnterpriseAirportCode, setActiveEnterpriseAirportCode] = useState<string | null>(null)
@@ -247,6 +251,41 @@ export function DiscoverPage() {
         setEnterpriseLoading(false)
         setActiveEnterpriseAirportCode(null)
         setFitLocations(null)
+        setScannerActive(false)
+        setScannerRegion(null)
+        setScannerBounds(null)
+        if (intent.scannerMode) {
+          setScannerActive(true)
+          setError(null)
+          setWeatherSummary(null)
+          setWeatherImpactAssessment(null)
+          const location = await resolveLocationQuery(search)
+          if (location) {
+            const region = {
+              label: location.label,
+              latitude: location.latitude,
+              longitude: location.longitude,
+            }
+            const searchBounds = boundsAroundLocation(location)
+            setScannerRegion(region)
+            setScannerBounds(searchBounds)
+            setSubmittedSearchRegion(region)
+            setBounds(searchBounds)
+            setShowAirports(true)
+            focusNonceRef.current += 1
+            setFocusLocation({
+              latitude: location.latitude,
+              longitude: location.longitude,
+              zoom: 8,
+              nonce: focusNonceRef.current,
+            })
+            loadNearbyAirports(location.latitude, location.longitude, "search_area", location.label)
+          } else {
+            setScannerBounds(bounds)
+            setScannerRegion(null)
+          }
+          return
+        }
         if (intent.selectedAircraftAirportMode) {
           setShowAirports(true)
           if (!selected) {
@@ -478,6 +517,18 @@ export function DiscoverPage() {
     const needle = search.trim().toLowerCase()
     return aircraft.filter((flight) => {
       if (!showOnGround && flight.on_ground) return false
+      if (scannerActive) {
+        if (scannerRegion) {
+          return distanceNm(flight.latitude, flight.longitude, scannerRegion.latitude, scannerRegion.longitude) <= 180
+        }
+        if (scannerBounds) {
+          return flight.latitude >= scannerBounds.lamin &&
+            flight.latitude <= scannerBounds.lamax &&
+            flight.longitude >= scannerBounds.lomin &&
+            flight.longitude <= scannerBounds.lomax
+        }
+        return true
+      }
       if (searchRegion) {
         return distanceNm(flight.latitude, flight.longitude, searchRegion.latitude, searchRegion.longitude) <= 180
       }
@@ -486,7 +537,7 @@ export function DiscoverPage() {
         flight.icao24.toLowerCase().includes(needle) ||
         flight.origin_country.toLowerCase().includes(needle)
     })
-  }, [aircraft, search, searchRegion, showOnGround])
+  }, [aircraft, scannerActive, scannerBounds, scannerRegion, search, searchRegion, showOnGround])
 
   const mapAirports = useMemo(() => {
     const merged = [...(enterprise?.selectedAirports ?? []), ...nearbyAirports]
@@ -499,6 +550,16 @@ export function DiscoverPage() {
     )
     if (airport) switchEnterpriseAirport(airport, airportCode)
   }, [enterprise?.selectedAirports, switchEnterpriseAirport])
+
+  const scannerResult = useMemo(() => {
+    if (!scannerActive) return null
+    return scanAirspaceConflicts(aircraft.filter((flight) => showOnGround || !flight.on_ground), mapAirports, {
+      bounds: scannerBounds ?? bounds,
+      center: scannerRegion ? { latitude: scannerRegion.latitude, longitude: scannerRegion.longitude } : null,
+      radiusKm: scannerRegion ? 200 : undefined,
+      weather,
+    })
+  }, [aircraft, bounds, mapAirports, scannerActive, scannerBounds, scannerRegion, showOnGround, weather])
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
@@ -560,18 +621,18 @@ export function DiscoverPage() {
       <DiscoverFilters search={search} onSearchChange={handleSearchChange} onSearchSubmit={submitSearch} showOnGround={showOnGround} onToggleOnGround={() => setShowOnGround((value) => !value)} showAirports={showAirports} onToggleAirports={toggleAirports} />
       <main className="relative flex min-h-0 flex-1 flex-col lg:flex-row">
         <div className="relative min-h-[420px] flex-1">
-          <AviationMap aircraft={filteredAircraft} selectedAircraft={selected} onSelectAircraft={setSelected} onBoundsChange={handleBoundsChange} focusLocation={focusLocation} fitLocations={fitLocations} airports={mapAirports} showAirports={showAirports} />
+          <AviationMap aircraft={filteredAircraft} selectedAircraft={selected} onSelectAircraft={setSelected} onBoundsChange={handleBoundsChange} focusLocation={focusLocation} fitLocations={fitLocations} airports={mapAirports} showAirports={showAirports} scannerMode={scannerActive} scannerConflicts={scannerResult?.pairs ?? []} />
           <div className="absolute left-4 top-4 z-[500] rounded-xl border border-border/40 bg-card/90 px-3 py-2 text-xs shadow-xl backdrop-blur">
             <div className="flex items-center gap-2 text-primary"><span className="h-2 w-2 animate-pulse rounded-full bg-primary" /> {dataStatus === "demo" ? "SAMPLE AIRSPACE" : "LIVE OPEN SKY"}</div>
             <p className="mt-1 text-muted-foreground">{loading ? "Loading live aircraft..." : `${filteredAircraft.length} aircraft in current view`}</p>
             {lastUpdated && <p className="text-[10px] text-muted-foreground">Last updated at {new Date(lastUpdated).toLocaleTimeString()}</p>}
             {dataStatus === "demo" && <p className="text-[10px] text-amber-300">Sample data, not live traffic</p>}
             <button
-              onClick={() => bounds && loadFlights(bounds, { forceRefresh: true })}
+              onClick={() => bounds && loadFlights(bounds, { forceRefresh: true, reason: "manual_refresh" })}
               disabled={loading || !bounds}
               className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-border/50 bg-secondary/40 px-2 py-1 text-[11px] text-foreground transition hover:bg-secondary/70 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} /> Refresh
+              <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} /> Refresh Live Airspace
             </button>
           </div>
           {!loading && error && <MapMessage text={error} error />}
@@ -612,6 +673,10 @@ export function DiscoverPage() {
             weatherError={weatherError}
             weatherSummary={weatherSummary}
             weatherImpactAssessment={weatherImpactAssessment}
+            scannerActive={scannerActive}
+            scannerResult={scannerResult}
+            scannerLastUpdated={lastUpdated}
+            scannerDataStatus={dataStatus}
             nearbyAirports={nearbyAirports}
             nearbyAirportsContext={nearbyAirportsContext}
             nearbyAirportsError={nearbyAirportsError}

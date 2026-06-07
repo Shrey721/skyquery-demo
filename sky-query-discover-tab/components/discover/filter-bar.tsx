@@ -8,6 +8,7 @@ import {
   Route,
   History,
   Activity,
+  Radar,
   Filter,
   Info,
 } from "lucide-react";
@@ -24,6 +25,12 @@ const filters = [
     label: "Live Airspace", 
     icon: Plane,
     description: "Live aircraft positions from public flight feeds (OpenSky, ADS-B)"
+  },
+  { 
+    id: "Airspace Scanner",
+    label: "Airspace Scanner",
+    icon: Radar,
+    description: "Scan the loaded aircraft snapshot for close-call proximity and altitude-separation risks"
   },
   { 
     id: "Congestion", 

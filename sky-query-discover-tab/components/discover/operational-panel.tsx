@@ -29,9 +29,10 @@ import {
   AlertCircle,
   CheckCircle2,
   Loader2,
+  Radar,
 } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import type { Aircraft, MapBounds } from "./aviation-map";
+import type { Aircraft, MapBounds, ScannerConflict } from "./aviation-map";
 
 interface OperationalPanelProps {
   selectedAircraft: Aircraft | null;
@@ -39,6 +40,7 @@ interface OperationalPanelProps {
   aircraftInView: number;
   mapBounds: MapBounds | null;
   activeFilters: string[];
+  scannerConflicts?: ScannerConflict[];
 }
 
 // Data source status types
@@ -102,6 +104,7 @@ export function OperationalPanel({
   aircraftInView,
   mapBounds,
   activeFilters,
+  scannerConflicts = [],
 }: OperationalPanelProps) {
   const [aiQuestion, setAiQuestion] = useState("");
   const [isAskingAI, setIsAskingAI] = useState(false);
@@ -232,6 +235,55 @@ export function OperationalPanel({
               </div>
             )}
           </section>
+
+          {activeFilters.includes("Airspace Scanner") && (
+            <section className="space-y-3">
+              <div className="flex items-center gap-2">
+                <Radar className="w-4 h-4 text-primary" />
+                <h2 className="text-xs font-semibold text-foreground uppercase tracking-wider">
+                  Airspace Scanner
+                </h2>
+              </div>
+              <div className="glass-panel rounded-lg p-3 space-y-3">
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="rounded-lg bg-secondary/30 p-2">
+                    <p className="text-[10px] text-muted-foreground uppercase">Aircraft scanned</p>
+                    <p className="text-lg font-bold text-foreground">{aircraftInView}</p>
+                  </div>
+                  <div className="rounded-lg bg-secondary/30 p-2">
+                    <p className="text-[10px] text-muted-foreground uppercase">Risk pairs found</p>
+                    <p className="text-lg font-bold text-foreground">{scannerConflicts.length}</p>
+                  </div>
+                </div>
+                <p className="text-[11px] text-muted-foreground">Based on the latest loaded aircraft snapshot. Manual refresh remains the only way to fetch new live airspace data.</p>
+                <div className="rounded-lg bg-secondary/30 p-2 text-xs space-y-1">
+                  <ScannerCount label="Critical" risk="Critical" scannerConflicts={scannerConflicts} />
+                  <ScannerCount label="High" risk="High" scannerConflicts={scannerConflicts} />
+                  <ScannerCount label="Medium" risk="Medium" scannerConflicts={scannerConflicts} />
+                  <ScannerCount label="Low" risk="Low" scannerConflicts={scannerConflicts} />
+                </div>
+                {scannerConflicts.length ? (
+                  <div className="space-y-2">
+                    {scannerConflicts.slice(0, 5).map((pair) => (
+                      <div key={pair.id} className="rounded-lg bg-secondary/30 p-2 text-xs">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-semibold text-foreground">{pair.aircraftA.callsign} / {pair.aircraftB.callsign}</span>
+                          <span className={pair.weatherAdjustedRisk === "Critical" ? "text-red-400" : pair.weatherAdjustedRisk === "High" ? "text-orange-400" : pair.weatherAdjustedRisk === "Medium" ? "text-amber-400" : "text-sky-400"}>{pair.weatherAdjustedRisk}</span>
+                        </div>
+                        <p className="mt-1 text-muted-foreground">{pair.horizontalKm.toFixed(1)} km / {Math.round(pair.verticalFt).toLocaleString()} ft vertical</p>
+                        <p className="mt-1 text-muted-foreground">Base proximity risk: {pair.baseRisk}</p>
+                        <p className="mt-1 text-muted-foreground">Weather factor: {pair.weatherFactor}</p>
+                        <p className="mt-1 text-muted-foreground">Nearest airport: {pair.nearestAirport ?? "Unavailable"}</p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="rounded-lg bg-secondary/30 p-2 text-xs text-muted-foreground">No close-call proximity risks detected in the current snapshot.</p>
+                )}
+                <p className="text-[11px] text-muted-foreground">This is a proximity screen from public/demo feeds, not real ATC conflict prediction.</p>
+              </div>
+            </section>
+          )}
 
           {/* Selected Aircraft */}
           {selectedAircraft && (
@@ -521,6 +573,23 @@ export function OperationalPanel({
           Context: {aircraftInView} aircraft • {activeFilters.length} filters active
         </p>
       </div>
+    </div>
+  );
+}
+
+function ScannerCount({
+  label,
+  risk,
+  scannerConflicts,
+}: {
+  label: string;
+  risk: ScannerConflict["weatherAdjustedRisk"];
+  scannerConflicts: ScannerConflict[];
+}) {
+  return (
+    <div className="flex items-center justify-between">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="text-foreground">{scannerConflicts.filter((pair) => pair.weatherAdjustedRisk === risk).length}</span>
     </div>
   );
 }

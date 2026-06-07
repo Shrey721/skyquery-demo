@@ -2,11 +2,12 @@
 
 import Link from "next/link"
 import { useState } from "react"
-import { Activity, ChevronDown, CloudRain, Database, MapPin, Plane, Radio, RefreshCw, Sparkles } from "lucide-react"
+import { Activity, ChevronDown, CloudRain, Database, MapPin, Plane, Radar, Radio, RefreshCw, Sparkles } from "lucide-react"
 import type { LiveAircraft, MapBounds } from "@/lib/public-flights-api"
 import type { WeatherIntelligence, WeatherRegion } from "@/lib/weather-api"
 import type { NearbyAirport } from "@/lib/nearby-airports-api"
 import type { DiscoverEnterpriseAirportSummary, DiscoverEnterpriseResponse } from "@/lib/discover-enterprise-api"
+import type { AirspaceScanResult, ScannerRiskLevel } from "@/lib/airspace-scanner"
 
 function displayNumber(value: number | null, unit = "") {
   return value == null ? "Unavailable" : `${Math.round(value).toLocaleString()}${unit}`
@@ -28,6 +29,7 @@ function displayWind(weather?: WeatherIntelligence | null) {
 }
 
 function riskClass(risk?: string) {
+  if (risk === "Critical") return "bg-red-600/20 text-red-200"
   if (risk === "High") return "bg-red-500/10 text-red-300"
   if (risk === "Medium") return "bg-amber-500/10 text-amber-300"
   return "bg-emerald-500/10 text-emerald-300"
@@ -45,6 +47,10 @@ export function IntelligencePanel({
   weatherError,
   weatherSummary,
   weatherImpactAssessment,
+  scannerActive,
+  scannerResult,
+  scannerLastUpdated,
+  scannerDataStatus,
   nearbyAirports,
   nearbyAirportsContext,
   nearbyAirportsError,
@@ -75,6 +81,10 @@ export function IntelligencePanel({
     contributors: string[]
     honestyLabel: string
   } | null
+  scannerActive?: boolean
+  scannerResult?: AirspaceScanResult | null
+  scannerLastUpdated?: string | null
+  scannerDataStatus?: "live" | "cached" | "stale" | "demo" | null
   nearbyAirports?: NearbyAirport[]
   nearbyAirportsContext?: "selected_aircraft" | "search_area" | "current_view" | null
   nearbyAirportsError?: string | null
@@ -227,6 +237,42 @@ export function IntelligencePanel({
           </div>
         </section>
       )}
+      {scannerActive && (
+        <section className="mb-5 space-y-3">
+          <h2 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider"><Radar className="h-4 w-4 text-primary" /> Airspace Scanner</h2>
+          <div className="space-y-3 rounded-xl border border-border/40 bg-secondary/20 p-3 text-xs">
+            <div className="grid grid-cols-2 gap-2">
+              <Metric label="Aircraft scanned" value={String(scannerResult?.aircraftScanned ?? 0)} />
+              <Metric label="Risk pairs found" value={String(scannerResult?.pairs.length ?? 0)} />
+            </div>
+            <p className="rounded-lg bg-background/30 px-3 py-2 text-[11px] text-muted-foreground">
+              Based on the latest loaded OpenSky snapshot{scannerLastUpdated ? ` from ${new Date(scannerLastUpdated).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : ""}. Scanner does not refresh live data automatically.
+            </p>
+            {scannerDataStatus === "stale" && (
+              <p className="rounded-lg bg-amber-500/10 px-3 py-2 text-amber-200">Live provider rate-limited. Scanner can still analyze the last loaded snapshot.</p>
+            )}
+            {scannerResult?.capped && <p className="rounded-lg bg-amber-500/10 px-3 py-2 text-amber-200">Large snapshot capped for browser performance.</p>}
+            <div className="rounded-lg border border-border/30 bg-background/20 p-2">
+              <Detail label="Critical" value={String(scannerResult?.riskCounts.Critical ?? 0)} />
+              <Detail label="High" value={String(scannerResult?.riskCounts.High ?? 0)} />
+              <Detail label="Medium" value={String(scannerResult?.riskCounts.Medium ?? 0)} />
+              <Detail label="Low" value={String(scannerResult?.riskCounts.Low ?? 0)} />
+            </div>
+            {scannerResult?.pairs.length ? (
+              <div className="max-h-96 space-y-2 overflow-y-auto pr-1">
+                {scannerResult.pairs.slice(0, 12).map((pair) => (
+                  <ScannerPairCard key={pair.id} pair={pair} />
+                ))}
+              </div>
+            ) : (
+              <p className="rounded-lg border border-border/30 bg-background/20 p-2 text-muted-foreground">
+                {scannerResult?.message ?? "No close-call proximity risks detected in the current snapshot."}
+              </p>
+            )}
+            <p className="text-[11px] text-muted-foreground">This is a proximity screen from public feeds with weather context, not real ATC conflict prediction.</p>
+          </div>
+        </section>
+      )}
       <section className="mb-5 space-y-3">
         <h2 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider"><Activity className="h-4 w-4 text-primary" /> Live Airspace Summary</h2>
         <div className="grid grid-cols-2 gap-2">
@@ -297,6 +343,38 @@ export function IntelligencePanel({
         <p className="flex items-center gap-1 text-[11px] text-muted-foreground"><Radio className="h-3 w-3" /> Enterprise intelligence uses selected Trino context. Weather from Open-Meteo.</p>
       </section>
     </aside>
+  )
+}
+
+function ScannerPairCard({ pair }: { pair: NonNullable<AirspaceScanResult["pairs"][number]> }) {
+  const labelA = pair.aircraftA.callsign || pair.aircraftA.icao24.toUpperCase()
+  const labelB = pair.aircraftB.callsign || pair.aircraftB.icao24.toUpperCase()
+  const weatherFactor = pair.weatherContext.unavailable
+    ? "Weather context unavailable. Scanner is using aircraft separation only."
+    : pair.weatherContext.factors.length
+      ? pair.weatherContext.factors.join(", ")
+      : "No adverse weather factor detected"
+  return (
+    <div className="rounded-lg border border-border/30 bg-background/20 p-2">
+      <div className="mb-2 flex items-start justify-between gap-2">
+        <div>
+          <p className="font-semibold text-foreground">{labelA} / {labelB}</p>
+          <p className="text-[11px] text-muted-foreground">{pair.nearestAirport?.code ? `Nearest: ${pair.nearestAirport.code}` : "Nearest airport unavailable"}</p>
+        </div>
+        <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] ${riskClass(pair.weatherAdjustedRisk)}`}>{pair.weatherAdjustedRisk}</span>
+      </div>
+      <Detail label="Distance" value={`${pair.horizontalKm.toFixed(1)} km`} />
+      <Detail label="Vertical separation" value={`${Math.round(pair.verticalFt).toLocaleString()} ft`} />
+      <Detail label="Altitude A" value={displayNumber(pair.altitudeA, " ft")} />
+      <Detail label="Altitude B" value={displayNumber(pair.altitudeB, " ft")} />
+      <Detail label="Speed A" value={displayNumber(pair.aircraftA.speed_kts, " kt")} />
+      <Detail label="Speed B" value={displayNumber(pair.aircraftB.speed_kts, " kt")} />
+      <Detail label="Heading A" value={displayNumber(pair.aircraftA.heading, " deg")} />
+      <Detail label="Heading B" value={displayNumber(pair.aircraftB.heading, " deg")} />
+      <Detail label="Base proximity risk" value={pair.baseRisk} />
+      <Detail label="Weather factor" value={weatherFactor} />
+      <Detail label="Weather-adjusted risk" value={pair.weatherAdjustedRisk} />
+    </div>
   )
 }
 
