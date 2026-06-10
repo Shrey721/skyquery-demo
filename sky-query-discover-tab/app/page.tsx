@@ -14,6 +14,11 @@ export default function DiscoverPage() {
   const [aircraftInView, setAircraftInView] = useState(0);
   const [aircraftSnapshot, setAircraftSnapshot] = useState<Aircraft[]>([]);
   const [mapBounds, setMapBounds] = useState<MapBounds | null>(null);
+  const [selectedCloseCallId, setSelectedCloseCallId] = useState<string | null>(null);
+  const [selectedAircraftIds, setSelectedAircraftIds] = useState<string[]>([]);
+  const [selectedAirportCode, setSelectedAirportCode] = useState<string | null>(null);
+  const [mapFocus, setMapFocus] = useState<{ locations: Array<{ lat: number; lng: number }>; zoom?: number; nonce: number } | null>(null);
+  const [focusMessage, setFocusMessage] = useState<string | null>(null);
 
   const handleFilterToggle = (filter: string) => {
     if (filter === "Replay") {
@@ -42,6 +47,41 @@ export default function DiscoverPage() {
     setMapBounds(bounds);
   }, []);
 
+  const handleAircraftSelect = useCallback((aircraft: Aircraft | null) => {
+    setSelectedAircraft(aircraft);
+    setSelectedCloseCallId(null);
+    setSelectedAircraftIds([]);
+    setSelectedAirportCode(null);
+    setFocusMessage(null);
+  }, []);
+
+  const handleScannerConflictSelect = useCallback((pair: ScannerConflict) => {
+    const aircraftA = findLoadedAircraft(aircraftSnapshot, pair.aircraftA);
+    const aircraftB = findLoadedAircraft(aircraftSnapshot, pair.aircraftB);
+    const locations = [aircraftA, aircraftB]
+      .filter((aircraft) => Number.isFinite(aircraft.lat) && Number.isFinite(aircraft.lng))
+      .map((aircraft) => ({ lat: aircraft.lat, lng: aircraft.lng }));
+
+    setSelectedCloseCallId(pair.id);
+    setSelectedAircraftIds([aircraftSelectionId(aircraftA), aircraftSelectionId(aircraftB)].filter(Boolean));
+    setSelectedAirportCode(null);
+    setFocusMessage(null);
+
+    if (locations.length > 0) {
+      setMapFocus({ locations, zoom: locations.length === 1 ? 2.4 : undefined, nonce: Date.now() });
+    } else {
+      setFocusMessage("Live position unavailable for this pair.");
+    }
+  }, [aircraftSnapshot]);
+
+  const handleNearbyAirportSelect = useCallback((airport: { code: string; lat: number; lng: number }) => {
+    setSelectedAirportCode(airport.code);
+    setSelectedCloseCallId(null);
+    setSelectedAircraftIds([]);
+    setFocusMessage(null);
+    setMapFocus({ locations: [{ lat: airport.lat, lng: airport.lng }], zoom: 2.4, nonce: Date.now() });
+  }, []);
+
   const scannerConflicts = useMemo(() => {
     if (!activeFilters.includes("Airspace Scanner")) return [];
     return scanScannerConflicts(aircraftSnapshot);
@@ -60,13 +100,21 @@ export default function DiscoverPage() {
         {/* Main Map Area */}
         <div className="flex-1 relative">
           <AviationMap
-            onAircraftSelect={setSelectedAircraft}
+            onAircraftSelect={handleAircraftSelect}
             selectedAircraft={selectedAircraft}
+            selectedAircraftIds={selectedAircraftIds}
+            selectedAirportCode={selectedAirportCode}
             activeFilters={activeFilters}
             onBoundsChange={handleBoundsChange}
             onAircraftListUpdate={handleAircraftListUpdate}
             scannerConflicts={scannerConflicts}
+            focusRequest={mapFocus}
           />
+          {focusMessage && (
+            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 rounded-lg border border-border/50 bg-card/90 px-4 py-3 text-sm text-muted-foreground backdrop-blur">
+              {focusMessage}
+            </div>
+          )}
         </div>
 
         {/* Right Operational Panel */}
@@ -77,6 +125,10 @@ export default function DiscoverPage() {
           mapBounds={mapBounds}
           activeFilters={activeFilters}
           scannerConflicts={scannerConflicts}
+          selectedCloseCallId={selectedCloseCallId}
+          onScannerConflictSelect={handleScannerConflictSelect}
+          selectedAirportCode={selectedAirportCode}
+          onNearbyAirportSelect={handleNearbyAirportSelect}
         />
       </div>
 
@@ -84,6 +136,28 @@ export default function DiscoverPage() {
       {showReplay && <ReplayTimeline onClose={() => setShowReplay(false)} />}
     </div>
   );
+}
+
+function normalizeIdentifier(value?: string | null) {
+  return value?.trim().toLowerCase() ?? "";
+}
+
+function aircraftSelectionId(aircraft: Aircraft) {
+  const icao24 = normalizeIdentifier(aircraft.icao24);
+  if (icao24) return `icao24:${icao24}`;
+  const callsign = normalizeIdentifier(aircraft.callsign);
+  return callsign ? `callsign:${callsign}` : "";
+}
+
+function findLoadedAircraft(aircraft: Aircraft[], candidate: Aircraft) {
+  const candidateIcao = normalizeIdentifier(candidate.icao24);
+  const candidateCallsign = normalizeIdentifier(candidate.callsign);
+  return aircraft.find((flight) => {
+    const flightIcao = normalizeIdentifier(flight.icao24);
+    if (candidateIcao && flightIcao && candidateIcao === flightIcao) return true;
+    const flightCallsign = normalizeIdentifier(flight.callsign);
+    return Boolean(candidateCallsign && flightCallsign && candidateCallsign === flightCallsign);
+  }) ?? candidate;
 }
 
 function scanScannerConflicts(aircraft: Aircraft[]): ScannerConflict[] {

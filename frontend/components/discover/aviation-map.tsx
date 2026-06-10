@@ -8,6 +8,8 @@ import type { AirspaceConflictPair, ScannerRiskLevel } from "@/lib/airspace-scan
 interface AviationMapProps {
   aircraft: LiveAircraft[]
   selectedAircraft: LiveAircraft | null
+  selectedAircraftIds?: string[]
+  selectedAirportCode?: string | null
   onSelectAircraft: (aircraft: LiveAircraft) => void
   onBoundsChange: (bounds: MapBounds) => void
   focusLocation?: { latitude: number; longitude: number; zoom?: number; nonce: number } | null
@@ -58,6 +60,17 @@ function densityCells(map: any, aircraft: LiveAircraft[], cellSize: number): Den
   }))
 }
 
+function aircraftIdentifier(flight: LiveAircraft) {
+  const icao24 = flight.icao24?.trim().toLowerCase()
+  if (icao24) return `icao24:${icao24}`
+  const callsign = flight.callsign?.trim().toLowerCase()
+  return callsign ? `callsign:${callsign}` : ""
+}
+
+function airportIdentifier(airport: NearbyAirport) {
+  return (airport.code || airport.iataCode || airport.icaoCode || airport.ident || "").trim().toUpperCase()
+}
+
 function planeIcon(L: any, flight: LiveAircraft, selected: boolean, view: TrafficView) {
   const heading = flight.heading != null && Number.isFinite(flight.heading) ? flight.heading : 0
   const impactedClass = flight.weather_impacted ? " is-weather-impacted" : ""
@@ -69,10 +82,10 @@ function planeIcon(L: any, flight: LiveAircraft, selected: boolean, view: Traffi
   })
 }
 
-function airportIcon(L: any, airport: NearbyAirport) {
+function airportIcon(L: any, airport: NearbyAirport, selected = false) {
   return L.divIcon({
     className: "discover-marker-shell",
-    html: `<span class="discover-airport-marker" aria-hidden="true"><svg viewBox="0 0 28 28" focusable="false"><circle cx="14" cy="14" r="10.5" /><path d="M14 7.5v13" /><path d="M10 11.5h8" /><path d="M11.5 18.5h5" /></svg></span>`,
+    html: `<span class="discover-airport-marker${selected ? " is-selected" : ""}" aria-hidden="true"><svg viewBox="0 0 28 28" focusable="false"><circle cx="14" cy="14" r="10.5" /><path d="M14 7.5v13" /><path d="M10 11.5h8" /><path d="M11.5 18.5h5" /></svg></span>`,
     iconSize: [28, 28],
     iconAnchor: [14, 14],
   })
@@ -176,7 +189,7 @@ function sampleAircraft(map: any, aircraft: LiveAircraft[], cap: number, cellSiz
   return sampled
 }
 
-export function AviationMap({ aircraft, selectedAircraft, onSelectAircraft, onBoundsChange, focusLocation, fitLocations, airports = [], showAirports = false, scannerMode = false, scannerConflicts = [] }: AviationMapProps) {
+export function AviationMap({ aircraft, selectedAircraft, selectedAircraftIds = [], selectedAirportCode = null, onSelectAircraft, onBoundsChange, focusLocation, fitLocations, airports = [], showAirports = false, scannerMode = false, scannerConflicts = [] }: AviationMapProps) {
   const hostRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<any>(null)
   const leafletRef = useRef<any>(null)
@@ -191,6 +204,8 @@ export function AviationMap({ aircraft, selectedAircraft, onSelectAircraft, onBo
   const scannerConflictsRef = useRef(scannerConflicts)
   const fitLocationsRef = useRef(fitLocations)
   const selectedRef = useRef(selectedAircraft)
+  const selectedAircraftIdsRef = useRef(selectedAircraftIds)
+  const selectedAirportCodeRef = useRef(selectedAirportCode)
   const onSelectRef = useRef(onSelectAircraft)
   const onBoundsRef = useRef(onBoundsChange)
   const renderRef = useRef<() => void>(() => undefined)
@@ -204,10 +219,12 @@ export function AviationMap({ aircraft, selectedAircraft, onSelectAircraft, onBo
     scannerModeRef.current = scannerMode
     scannerConflictsRef.current = scannerConflicts
     selectedRef.current = selectedAircraft
+    selectedAircraftIdsRef.current = selectedAircraftIds
+    selectedAirportCodeRef.current = selectedAirportCode
     onSelectRef.current = onSelectAircraft
     onBoundsRef.current = onBoundsChange
     renderRef.current()
-  }, [aircraft, airports, onBoundsChange, onSelectAircraft, scannerConflicts, scannerMode, selectedAircraft, showAirports])
+  }, [aircraft, airports, onBoundsChange, onSelectAircraft, scannerConflicts, scannerMode, selectedAircraft, selectedAircraftIds, selectedAirportCode, showAirports])
 
   useEffect(() => {
     const map = mapRef.current
@@ -282,9 +299,10 @@ export function AviationMap({ aircraft, selectedAircraft, onSelectAircraft, onBo
       : view === "regional"
         ? sampleAircraft(map, currentAircraft, MEDIUM_ZOOM_ICON_CAP, 26)
         : currentAircraft
+    const selectedAircraftSet = new Set(selectedAircraftIdsRef.current)
     const selectedId = view === "aircraft" || scannerModeRef.current ? selectedRef.current?.icao24 : undefined
     markerAircraft.forEach((flight) => {
-      const isSelected = Boolean(selectedId && flight.icao24 === selectedId)
+      const isSelected = Boolean((selectedId && flight.icao24 === selectedId) || selectedAircraftSet.has(aircraftIdentifier(flight)))
       const marker = L.marker([flight.latitude, flight.longitude], {
         pane: "discoverAircraft",
         icon: planeIcon(L, flight, isSelected, scannerModeRef.current ? "aircraft" : view),
@@ -320,14 +338,19 @@ export function AviationMap({ aircraft, selectedAircraft, onSelectAircraft, onBo
       })
     }
     if (showAirportsRef.current) {
+      const selectedAirport = selectedAirportCodeRef.current?.trim().toUpperCase()
       airportsRef.current.slice(0, 10).forEach((airport) => {
         if (!Number.isFinite(airport.lat) || !Number.isFinite(airport.lon)) return
+        const airportCodes = [airportIdentifier(airport), airport.iataCode, airport.icaoCode, airport.ident]
+          .map((code) => code?.trim().toUpperCase())
+          .filter(Boolean)
+        const isSelectedAirport = Boolean(selectedAirport && airportCodes.includes(selectedAirport))
         L.marker([airport.lat, airport.lon], {
           pane: "discoverAirports",
-          icon: airportIcon(L, airport),
+          icon: airportIcon(L, airport, isSelectedAirport),
           keyboard: false,
           riseOnHover: true,
-          riseOffset: 750,
+          riseOffset: isSelectedAirport ? 1200 : 750,
         })
           .bindTooltip(airportTooltip(airport), {
             direction: "top",

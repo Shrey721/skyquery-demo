@@ -41,6 +41,10 @@ interface OperationalPanelProps {
   mapBounds: MapBounds | null;
   activeFilters: string[];
   scannerConflicts?: ScannerConflict[];
+  selectedCloseCallId?: string | null;
+  onScannerConflictSelect?: (pair: ScannerConflict) => void;
+  selectedAirportCode?: string | null;
+  onNearbyAirportSelect?: (airport: NearbyAirportCard) => void;
 }
 
 // Data source status types
@@ -62,10 +66,21 @@ const dataSources: DataSource[] = [
 ];
 
 // Nearby airports with realistic data
-const nearbyAirports = [
-  { code: "JFK", name: "John F. Kennedy Intl", distance: 12.4, weather: "Cloudy, 18°C", pressure: "Medium", delays: 15 },
-  { code: "EWR", name: "Newark Liberty Intl", distance: 28.7, weather: "Overcast, 17°C", pressure: "High", delays: 32 },
-  { code: "LGA", name: "LaGuardia", distance: 18.2, weather: "Cloudy, 18°C", pressure: "Low", delays: 8 },
+interface NearbyAirportCard {
+  code: string;
+  name: string;
+  distance: number;
+  weather: string;
+  pressure: "Low" | "Medium" | "High";
+  delays: number;
+  lat: number;
+  lng: number;
+}
+
+const nearbyAirports: NearbyAirportCard[] = [
+  { code: "JFK", name: "John F. Kennedy Intl", distance: 12.4, weather: "Cloudy, 18°C", pressure: "Medium", delays: 15, lat: 40.6413, lng: -73.7781 },
+  { code: "EWR", name: "Newark Liberty Intl", distance: 28.7, weather: "Overcast, 17°C", pressure: "High", delays: 32, lat: 40.6895, lng: -74.1745 },
+  { code: "LGA", name: "LaGuardia", distance: 18.2, weather: "Cloudy, 18°C", pressure: "Low", delays: 8, lat: 40.7769, lng: -73.8740 },
 ];
 
 // Weather impact data
@@ -105,6 +120,10 @@ export function OperationalPanel({
   mapBounds,
   activeFilters,
   scannerConflicts = [],
+  selectedCloseCallId = null,
+  onScannerConflictSelect,
+  selectedAirportCode = null,
+  onNearbyAirportSelect,
 }: OperationalPanelProps) {
   const [aiQuestion, setAiQuestion] = useState("");
   const [isAskingAI, setIsAskingAI] = useState(false);
@@ -265,7 +284,18 @@ export function OperationalPanel({
                 {scannerConflicts.length ? (
                   <div className="space-y-2">
                     {scannerConflicts.slice(0, 5).map((pair) => (
-                      <div key={pair.id} className="rounded-lg bg-secondary/30 p-2 text-xs">
+                      <div
+                        key={pair.id}
+                        role={onScannerConflictSelect ? "button" : undefined}
+                        tabIndex={onScannerConflictSelect ? 0 : undefined}
+                        onClick={() => onScannerConflictSelect?.(pair)}
+                        onKeyDown={(event) => {
+                          if (!onScannerConflictSelect || (event.key !== "Enter" && event.key !== " ")) return;
+                          event.preventDefault();
+                          onScannerConflictSelect(pair);
+                        }}
+                        className={`rounded-lg p-2 text-xs transition ${pair.id === selectedCloseCallId ? "bg-primary/10 ring-1 ring-primary/40" : "bg-secondary/30"} ${onScannerConflictSelect ? "cursor-pointer hover:bg-secondary/50" : ""}`}
+                      >
                         <div className="flex items-center justify-between gap-2">
                           <span className="font-semibold text-foreground">{pair.aircraftA.callsign} / {pair.aircraftB.callsign}</span>
                           <span className={pair.weatherAdjustedRisk === "Critical" ? "text-red-400" : pair.weatherAdjustedRisk === "High" ? "text-orange-400" : pair.weatherAdjustedRisk === "Medium" ? "text-amber-400" : "text-sky-400"}>{pair.weatherAdjustedRisk}</span>
@@ -380,7 +410,18 @@ export function OperationalPanel({
             </div>
             <div className="space-y-2">
               {nearbyAirports.map((airport) => (
-                <div key={airport.code} className="glass-panel rounded-lg p-2.5">
+                <div
+                  key={airport.code}
+                  role={onNearbyAirportSelect ? "button" : undefined}
+                  tabIndex={onNearbyAirportSelect ? 0 : undefined}
+                  onClick={() => onNearbyAirportSelect?.(airport)}
+                  onKeyDown={(event) => {
+                    if (!onNearbyAirportSelect || (event.key !== "Enter" && event.key !== " ")) return;
+                    event.preventDefault();
+                    onNearbyAirportSelect(airport);
+                  }}
+                  className={`glass-panel rounded-lg p-2.5 transition ${airport.code === selectedAirportCode ? "bg-primary/10 ring-1 ring-primary/50" : ""} ${onNearbyAirportSelect ? "cursor-pointer hover:bg-secondary/40" : ""}`}
+                >
                   <div className="flex items-center justify-between mb-1.5">
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-bold text-primary">{airport.code}</span>

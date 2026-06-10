@@ -126,6 +126,15 @@
   stroke-linecap: round;
   stroke-width: 1.8;
 }
+.discover-airport-marker.is-selected {
+  background: rgba(34, 211, 238, 0.18);
+  border-color: #67e8f9;
+  box-shadow: 0 0 0 4px rgba(34, 211, 238, 0.18), 0 0 18px rgba(34, 211, 238, 0.5);
+}
+.discover-airport-marker.is-selected circle {
+  fill: rgba(34, 211, 238, 0.2);
+  stroke: #cffafe;
+}
 .discover-airport-tooltip {
   color: #0f172a;
   display: grid;

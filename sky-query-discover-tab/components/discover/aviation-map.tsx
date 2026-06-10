@@ -50,10 +50,13 @@ export interface ScannerConflict {
 interface AviationMapProps {
   onAircraftSelect: (aircraft: Aircraft | null) => void;
   selectedAircraft: Aircraft | null;
+  selectedAircraftIds?: string[];
+  selectedAirportCode?: string | null;
   activeFilters: string[];
   onBoundsChange?: (bounds: MapBounds) => void;
   onAircraftListUpdate?: (aircraft: Aircraft[]) => void;
   scannerConflicts?: ScannerConflict[];
+  focusRequest?: { locations: Array<{ lat: number; lng: number }>; zoom?: number; nonce: number } | null;
 }
 
 // Mock aircraft data structured like OpenSky API response
@@ -151,10 +154,13 @@ const continentOutlines = {
 export function AviationMap({
   onAircraftSelect,
   selectedAircraft,
+  selectedAircraftIds = [],
+  selectedAirportCode = null,
   activeFilters,
   onBoundsChange,
   onAircraftListUpdate,
   scannerConflicts = [],
+  focusRequest = null,
 }: AviationMapProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -199,6 +205,34 @@ export function AviationMap({
       west: Math.max(-180, Math.min(topLeft.lng, bottomRight.lng)),
     };
   }, [zoom, pan]);
+
+  const focusLocations = useCallback((locations: Array<{ lat: number; lng: number }>, requestedZoom?: number) => {
+    const container = containerRef.current;
+    if (!container || locations.length === 0) return;
+    const { width, height } = container.getBoundingClientRect();
+    const center = locations.reduce((acc, location) => ({
+      lat: acc.lat + location.lat / locations.length,
+      lng: acc.lng + location.lng / locations.length,
+    }), { lat: 0, lng: 0 });
+    let nextZoom = requestedZoom ?? 2.4;
+    if (locations.length > 1) {
+      const lats = locations.map((location) => location.lat);
+      const lngs = locations.map((location) => location.lng);
+      const latSpan = Math.max(Math.max(...lats) - Math.min(...lats), 0.5);
+      const lngSpan = Math.max(Math.max(...lngs) - Math.min(...lngs), 0.5);
+      nextZoom = Math.min(5, Math.max(0.7, Math.min(140 / lngSpan, 70 / latSpan)));
+    }
+    setZoom(nextZoom);
+    setPan({
+      x: width / 2 - ((center.lng + 180) / 360) * width * nextZoom,
+      y: height / 2 - ((90 - center.lat) / 180) * height * nextZoom,
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!focusRequest) return;
+    focusLocations(focusRequest.locations, focusRequest.zoom);
+  }, [focusLocations, focusRequest]);
 
   // Cluster nearby aircraft
   const clusterAircraft = useCallback((aircraft: Aircraft[], width: number, height: number) => {
@@ -404,18 +438,30 @@ export function AviationMap({
       if (x < -50 || x > width + 50 || y < -50 || y > height + 50) return;
 
       const size = airport.type === "large" ? 8 : airport.type === "medium" ? 6 : 4;
+      const isSelectedAirport = airport.code.trim().toUpperCase() === selectedAirportCode?.trim().toUpperCase();
+
+      if (isSelectedAirport) {
+        const glow = ctx.createRadialGradient(x, y, 0, x, y, 28);
+        glow.addColorStop(0, "rgba(0, 212, 255, 0.42)");
+        glow.addColorStop(1, "rgba(0, 212, 255, 0)");
+        ctx.fillStyle = glow;
+        ctx.beginPath();
+        ctx.arc(x, y, 28, 0, Math.PI * 2);
+        ctx.fill();
+      }
       
       // Airport marker
-      ctx.fillStyle = airport.type === "large" ? "rgba(100, 180, 255, 0.9)" : 
+      ctx.fillStyle = isSelectedAirport ? "rgba(0, 212, 255, 0.95)" :
+                     airport.type === "large" ? "rgba(100, 180, 255, 0.9)" : 
                      airport.type === "medium" ? "rgba(100, 180, 255, 0.6)" : "rgba(100, 180, 255, 0.4)";
       ctx.beginPath();
-      ctx.arc(x, y, size, 0, Math.PI * 2);
+      ctx.arc(x, y, isSelectedAirport ? size + 3 : size, 0, Math.PI * 2);
       ctx.fill();
 
       // Airport code label
       if (zoom > 0.8 && airport.type !== "small") {
         ctx.font = `${airport.type === "large" ? "bold " : ""}10px 'Geist', sans-serif`;
-        ctx.fillStyle = "rgba(150, 200, 255, 0.8)";
+        ctx.fillStyle = isSelectedAirport ? "#00d4ff" : "rgba(150, 200, 255, 0.8)";
         ctx.textAlign = "center";
         ctx.fillText(airport.code, x, y - size - 4);
       }
@@ -485,7 +531,7 @@ export function AviationMap({
           // Draw individual aircraft
           cluster.aircraft.forEach((aircraft) => {
             const pos = latLngToCanvas(aircraft.lat, aircraft.lng, width, height);
-            const isSelected = selectedAircraft?.id === aircraft.id;
+            const isSelected = selectedAircraft?.id === aircraft.id || selectedAircraftIds.includes(aircraftSelectionId(aircraft));
             const size = isSelected ? 14 : 10;
 
             // Glow for selected
@@ -574,7 +620,7 @@ export function AviationMap({
     const bounds = calculateBounds(width, height);
     onBoundsChange?.(bounds);
 
-  }, [zoom, pan, activeFilters, selectedAircraft, latLngToCanvas, clusterAircraft, calculateBounds, onBoundsChange, scannerConflicts]);
+  }, [zoom, pan, activeFilters, selectedAircraft, selectedAircraftIds, selectedAirportCode, latLngToCanvas, clusterAircraft, calculateBounds, onBoundsChange, scannerConflicts]);
 
   // Animation loop
   useEffect(() => {
@@ -787,4 +833,11 @@ export function AviationMap({
       </div>
     </div>
   );
+}
+
+function aircraftSelectionId(aircraft: Aircraft) {
+  const icao24 = aircraft.icao24?.trim().toLowerCase();
+  if (icao24) return `icao24:${icao24}`;
+  const callsign = aircraft.callsign?.trim().toLowerCase();
+  return callsign ? `callsign:${callsign}` : "";
 }

@@ -7,7 +7,7 @@ import type { LiveAircraft, MapBounds } from "@/lib/public-flights-api"
 import type { WeatherIntelligence, WeatherRegion } from "@/lib/weather-api"
 import type { NearbyAirport } from "@/lib/nearby-airports-api"
 import type { DiscoverEnterpriseAirportSummary, DiscoverEnterpriseResponse } from "@/lib/discover-enterprise-api"
-import type { AirspaceScanResult, ScannerRiskLevel } from "@/lib/airspace-scanner"
+import type { AirspaceConflictPair, AirspaceScanResult } from "@/lib/airspace-scanner"
 
 function displayNumber(value: number | null, unit = "") {
   return value == null ? "Unavailable" : `${Math.round(value).toLocaleString()}${unit}`
@@ -61,6 +61,10 @@ export function IntelligencePanel({
   enterpriseLoading = false,
   activeEnterpriseAirportCode,
   onSelectEnterpriseAirport,
+  selectedCloseCallId,
+  onSelectCloseCall,
+  selectedAirportCode,
+  onSelectNearbyAirport,
 }: {
   aircraft: LiveAircraft[]
   selected: LiveAircraft | null
@@ -95,6 +99,10 @@ export function IntelligencePanel({
   enterpriseLoading?: boolean
   activeEnterpriseAirportCode?: string | null
   onSelectEnterpriseAirport?: (airportCode: string) => void
+  selectedCloseCallId?: string | null
+  onSelectCloseCall?: (pair: AirspaceConflictPair) => void
+  selectedAirportCode?: string | null
+  onSelectNearbyAirport?: (airport: NearbyAirport) => void
 }) {
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [airportsOpen, setAirportsOpen] = useState(false)
@@ -261,7 +269,7 @@ export function IntelligencePanel({
             {scannerResult?.pairs.length ? (
               <div className="max-h-96 space-y-2 overflow-y-auto pr-1">
                 {scannerResult.pairs.slice(0, 12).map((pair) => (
-                  <ScannerPairCard key={pair.id} pair={pair} />
+                  <ScannerPairCard key={pair.id} pair={pair} selected={pair.id === selectedCloseCallId} onSelect={onSelectCloseCall} />
                 ))}
               </div>
             ) : (
@@ -320,7 +328,18 @@ export function IntelligencePanel({
         ) : nearbyAirports && nearbyAirports.length > 0 ? (
           <div className={`${airportsOpen ? "max-h-72 overflow-y-auto pr-1" : ""} space-y-2`}>
             {nearbyAirports.slice(0, airportsOpen ? 10 : 5).map((airport) => (
-              <div key={`${airport.ident}-${airport.distanceNm}`} className="rounded-lg border border-border/30 bg-secondary/20 p-2 text-xs">
+              <div
+                key={`${airport.ident}-${airport.distanceNm}`}
+                role={onSelectNearbyAirport ? "button" : undefined}
+                tabIndex={onSelectNearbyAirport ? 0 : undefined}
+                onClick={() => onSelectNearbyAirport?.(airport)}
+                onKeyDown={(event) => {
+                  if (!onSelectNearbyAirport || (event.key !== "Enter" && event.key !== " ")) return
+                  event.preventDefault()
+                  onSelectNearbyAirport(airport)
+                }}
+                className={`rounded-lg border p-2 text-xs transition ${airportMatchesCode(airport, selectedAirportCode) ? "border-primary/70 bg-primary/10 ring-1 ring-primary/30" : "border-border/30 bg-secondary/20"} ${onSelectNearbyAirport ? "cursor-pointer hover:border-primary/50 hover:bg-secondary/30" : ""}`}
+              >
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="font-semibold text-primary">{airport.code}</p>
@@ -346,7 +365,7 @@ export function IntelligencePanel({
   )
 }
 
-function ScannerPairCard({ pair }: { pair: NonNullable<AirspaceScanResult["pairs"][number]> }) {
+function ScannerPairCard({ pair, selected = false, onSelect }: { pair: AirspaceConflictPair; selected?: boolean; onSelect?: (pair: AirspaceConflictPair) => void }) {
   const labelA = pair.aircraftA.callsign || pair.aircraftA.icao24.toUpperCase()
   const labelB = pair.aircraftB.callsign || pair.aircraftB.icao24.toUpperCase()
   const weatherFactor = pair.weatherContext.unavailable
@@ -355,7 +374,17 @@ function ScannerPairCard({ pair }: { pair: NonNullable<AirspaceScanResult["pairs
       ? pair.weatherContext.factors.join(", ")
       : "No adverse weather factor detected"
   return (
-    <div className="rounded-lg border border-border/30 bg-background/20 p-2">
+    <div
+      role={onSelect ? "button" : undefined}
+      tabIndex={onSelect ? 0 : undefined}
+      onClick={() => onSelect?.(pair)}
+      onKeyDown={(event) => {
+        if (!onSelect || (event.key !== "Enter" && event.key !== " ")) return
+        event.preventDefault()
+        onSelect(pair)
+      }}
+      className={`rounded-lg border p-2 transition ${selected ? "border-primary/70 bg-primary/10 ring-1 ring-primary/30" : "border-border/30 bg-background/20"} ${onSelect ? "cursor-pointer hover:border-primary/50 hover:bg-background/30" : ""}`}
+    >
       <div className="mb-2 flex items-start justify-between gap-2">
         <div>
           <p className="font-semibold text-foreground">{labelA} / {labelB}</p>
@@ -376,6 +405,13 @@ function ScannerPairCard({ pair }: { pair: NonNullable<AirspaceScanResult["pairs
       <Detail label="Weather-adjusted risk" value={pair.weatherAdjustedRisk} />
     </div>
   )
+}
+
+function airportMatchesCode(airport: NearbyAirport, code?: string | null) {
+  const normalized = code?.trim().toUpperCase()
+  if (!normalized) return false
+  return [airport.code, airport.iataCode, airport.icaoCode, airport.ident]
+    .some((candidate) => candidate?.trim().toUpperCase() === normalized)
 }
 
 function Metric({ label, value }: { label: string; value: string }) {

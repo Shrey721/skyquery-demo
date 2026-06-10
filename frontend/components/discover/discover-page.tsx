@@ -16,7 +16,7 @@ import { boundsAroundLocation, resolveLocationQuery } from "@/lib/location-searc
 import { buildWeatherImpactAssessment, parseDiscoverQuery, requestedWeatherMetricSummary, shouldMarkFlightsImpacted, weatherImpactSummary } from "@/lib/discover-query-intent.mjs"
 import { fetchAirportsInBounds, fetchNearbyAirports, type NearbyAirport } from "@/lib/nearby-airports-api"
 import { fetchDiscoverEnterprise, fetchDiscoverEnterpriseCandidates, type DiscoverEnterpriseResponse } from "@/lib/discover-enterprise-api"
-import { scanAirspaceConflicts } from "@/lib/airspace-scanner"
+import { scanAirspaceConflicts, type AirspaceConflictPair } from "@/lib/airspace-scanner"
 import { logoutUser } from "@/lib/api"
 import {
   clearAuthSession,
@@ -65,6 +65,10 @@ export function DiscoverPage() {
   const [scannerActive, setScannerActive] = useState(false)
   const [scannerRegion, setScannerRegion] = useState<WeatherRegion | null>(null)
   const [scannerBounds, setScannerBounds] = useState<MapBounds | null>(null)
+  const [selectedCloseCallId, setSelectedCloseCallId] = useState<string | null>(null)
+  const [selectedAircraftIds, setSelectedAircraftIds] = useState<string[]>([])
+  const [selectedAirportCode, setSelectedAirportCode] = useState<string | null>(null)
+  const [focusMessage, setFocusMessage] = useState<string | null>(null)
   const [enterprise, setEnterprise] = useState<DiscoverEnterpriseResponse | null>(null)
   const [enterpriseLoading, setEnterpriseLoading] = useState(false)
   const [activeEnterpriseAirportCode, setActiveEnterpriseAirportCode] = useState<string | null>(null)
@@ -189,6 +193,10 @@ export function DiscoverPage() {
     const region = { label: `${airport.code} - ${airport.name}`, latitude: airport.lat, longitude: airport.lon }
     const airportBounds = boundsAroundLocation({ latitude: airport.lat, longitude: airport.lon })
     setActiveEnterpriseAirportCode(enterpriseAirportCode)
+    setSelectedAirportCode(airportCodeForSelection(airport) ?? enterpriseAirportCode)
+    setSelectedCloseCallId(null)
+    setSelectedAircraftIds([])
+    setFocusMessage(null)
     setSubmittedSearchRegion(region)
     setFitLocations(null)
     focusNonceRef.current += 1
@@ -250,6 +258,10 @@ export function DiscoverPage() {
         setEnterprise(null)
         setEnterpriseLoading(false)
         setActiveEnterpriseAirportCode(null)
+        setSelectedAirportCode(null)
+        setSelectedCloseCallId(null)
+        setSelectedAircraftIds([])
+        setFocusMessage(null)
         setFitLocations(null)
         setScannerActive(false)
         setScannerRegion(null)
@@ -551,6 +563,66 @@ export function DiscoverPage() {
     if (airport) switchEnterpriseAirport(airport, airportCode)
   }, [enterprise?.selectedAirports, switchEnterpriseAirport])
 
+  const handleAircraftSelect = useCallback((flight: LiveAircraft) => {
+    setSelected(flight)
+    setSelectedCloseCallId(null)
+    setSelectedAircraftIds([])
+    setSelectedAirportCode(null)
+    setFocusMessage(null)
+  }, [])
+
+  const findLoadedAircraft = useCallback((candidate: LiveAircraft) => {
+    const candidateIcao = normalizeIdentifier(candidate.icao24)
+    const candidateCallsign = normalizeIdentifier(candidate.callsign)
+    return aircraft.find((flight) => {
+      const flightIcao = normalizeIdentifier(flight.icao24)
+      if (candidateIcao && flightIcao && candidateIcao === flightIcao) return true
+      const flightCallsign = normalizeIdentifier(flight.callsign)
+      return Boolean(candidateCallsign && flightCallsign && candidateCallsign === flightCallsign)
+    }) ?? candidate
+  }, [aircraft])
+
+  const handleCloseCallSelect = useCallback((pair: AirspaceConflictPair) => {
+    const flightA = findLoadedAircraft(pair.aircraftA)
+    const flightB = findLoadedAircraft(pair.aircraftB)
+    const positions = [flightA, flightB]
+      .filter(hasAircraftCoordinates)
+      .map((flight) => ({ latitude: flight.latitude, longitude: flight.longitude }))
+
+    setSelectedCloseCallId(pair.id)
+    setSelectedAircraftIds([aircraftSelectionId(flightA), aircraftSelectionId(flightB)].filter(Boolean))
+    setSelectedAirportCode(null)
+    setFocusMessage(null)
+
+    if (positions.length >= 2) {
+      focusNonceRef.current += 1
+      setFocusLocation(null)
+      setFitLocations({ locations: positions, nonce: focusNonceRef.current })
+      return
+    }
+
+    if (positions.length === 1) {
+      focusNonceRef.current += 1
+      setFitLocations(null)
+      setFocusLocation({ ...positions[0], zoom: 10, nonce: focusNonceRef.current })
+      return
+    }
+
+    setFocusMessage("Live position unavailable for this pair.")
+  }, [findLoadedAircraft])
+
+  const handleNearbyAirportSelect = useCallback((airport: NearbyAirport) => {
+    if (!Number.isFinite(airport.lat) || !Number.isFinite(airport.lon)) return
+    focusNonceRef.current += 1
+    setSelectedAirportCode(airportCodeForSelection(airport))
+    setSelectedCloseCallId(null)
+    setSelectedAircraftIds([])
+    setFocusMessage(null)
+    setFitLocations(null)
+    setFocusLocation({ latitude: airport.lat, longitude: airport.lon, zoom: 9, nonce: focusNonceRef.current })
+    setShowAirports(true)
+  }, [])
+
   const scannerResult = useMemo(() => {
     if (!scannerActive) return null
     return scanAirspaceConflicts(aircraft.filter((flight) => showOnGround || !flight.on_ground), mapAirports, {
@@ -621,7 +693,7 @@ export function DiscoverPage() {
       <DiscoverFilters search={search} onSearchChange={handleSearchChange} onSearchSubmit={submitSearch} showOnGround={showOnGround} onToggleOnGround={() => setShowOnGround((value) => !value)} showAirports={showAirports} onToggleAirports={toggleAirports} />
       <main className="relative flex min-h-0 flex-1 flex-col lg:flex-row">
         <div className="relative min-h-[420px] flex-1">
-          <AviationMap aircraft={filteredAircraft} selectedAircraft={selected} onSelectAircraft={setSelected} onBoundsChange={handleBoundsChange} focusLocation={focusLocation} fitLocations={fitLocations} airports={mapAirports} showAirports={showAirports} scannerMode={scannerActive} scannerConflicts={scannerResult?.pairs ?? []} />
+          <AviationMap aircraft={filteredAircraft} selectedAircraft={selected} selectedAircraftIds={selectedAircraftIds} selectedAirportCode={selectedAirportCode ?? activeEnterpriseAirportCode} onSelectAircraft={handleAircraftSelect} onBoundsChange={handleBoundsChange} focusLocation={focusLocation} fitLocations={fitLocations} airports={mapAirports} showAirports={showAirports} scannerMode={scannerActive} scannerConflicts={scannerResult?.pairs ?? []} />
           <div className="absolute left-4 top-4 z-[500] rounded-xl border border-border/40 bg-card/90 px-3 py-2 text-xs shadow-xl backdrop-blur">
             <div className="flex items-center gap-2 text-primary"><span className="h-2 w-2 animate-pulse rounded-full bg-primary" /> {dataStatus === "demo" ? "SAMPLE AIRSPACE" : "LIVE OPEN SKY"}</div>
             <p className="mt-1 text-muted-foreground">{loading ? "Loading live aircraft..." : `${filteredAircraft.length} aircraft in current view`}</p>
@@ -636,6 +708,7 @@ export function DiscoverPage() {
             </button>
           </div>
           {!loading && error && <MapMessage text={error} error />}
+          {focusMessage && <MapMessage text={focusMessage} />}
           {!loading && !error && filteredAircraft.length === 0 && <MapMessage text="No live aircraft found in this region." />}
         </div>
         <div
@@ -687,6 +760,10 @@ export function DiscoverPage() {
             enterpriseLoading={enterpriseLoading}
             activeEnterpriseAirportCode={activeEnterpriseAirportCode}
             onSelectEnterpriseAirport={handleEnterpriseAirportSelect}
+            selectedCloseCallId={selectedCloseCallId}
+            onSelectCloseCall={handleCloseCallSelect}
+            selectedAirportCode={selectedAirportCode}
+            onSelectNearbyAirport={handleNearbyAirportSelect}
           />
         </div>
         {!sidebarOpen && (
@@ -714,4 +791,23 @@ function distanceNm(latA: number, lonA: number, latB: number, lonB: number) {
   const dLon = (lonB - lonA) * radians
   const a = Math.sin(dLat / 2) ** 2 + Math.cos(latA * radians) * Math.cos(latB * radians) * Math.sin(dLon / 2) ** 2
   return 3440 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+}
+
+function normalizeIdentifier(value?: string | null) {
+  return value?.trim().toLowerCase() ?? ""
+}
+
+function aircraftSelectionId(flight: LiveAircraft) {
+  const icao24 = normalizeIdentifier(flight.icao24)
+  if (icao24) return `icao24:${icao24}`
+  const callsign = normalizeIdentifier(flight.callsign)
+  return callsign ? `callsign:${callsign}` : ""
+}
+
+function hasAircraftCoordinates(flight: LiveAircraft) {
+  return Number.isFinite(flight.latitude) && Number.isFinite(flight.longitude)
+}
+
+function airportCodeForSelection(airport: NearbyAirport) {
+  return airport.code || airport.iataCode || airport.icaoCode || airport.ident || null
 }
