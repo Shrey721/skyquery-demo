@@ -57,6 +57,7 @@ export function IntelligencePanel({
   scannerDataStatus,
   nearbyAirports,
   nearbyAirportsContext,
+  nearbyAirportsLoading = false,
   nearbyAirportsError,
   nearbyAirportsLabel,
   nearbyAirportsSource,
@@ -99,6 +100,7 @@ export function IntelligencePanel({
   scannerDataStatus?: "live" | "cached" | "stale" | "demo" | null
   nearbyAirports?: NearbyAirport[]
   nearbyAirportsContext?: "selected_aircraft" | "search_area" | "current_view" | null
+  nearbyAirportsLoading?: boolean
   nearbyAirportsError?: string | null
   nearbyAirportsLabel?: string | null
   nearbyAirportsSource?: string | null
@@ -337,9 +339,15 @@ export function IntelligencePanel({
         </div>
         <p className="text-[11px] text-muted-foreground">{airportContextLabel(nearbyAirportsContext, nearbyAirportsLabel)}</p>
         {nearbyAirportsSource && <p className="text-[11px] text-muted-foreground">Source: {nearbyAirportsSource}</p>}
-        {nearbyAirportsError ? (
-          <p className="rounded-lg border border-border/30 bg-secondary/20 p-2 text-xs text-muted-foreground">Nearby airport data unavailable.</p>
-        ) : nearbyAirports && nearbyAirports.length > 0 ? (
+        {nearbyAirportsLoading && (
+          <p className="rounded-lg border border-primary/20 bg-primary/10 p-2 text-xs text-primary">
+            {nearbyAirportsContext === "selected_aircraft" ? "Loading nearby airports for selected aircraft..." : "Loading nearby airports..."}
+          </p>
+        )}
+        {nearbyAirportsError && (
+          <p className="rounded-lg border border-amber-500/20 bg-amber-500/10 p-2 text-xs text-amber-200">{nearbyAirportsError}</p>
+        )}
+        {nearbyAirports && nearbyAirports.length > 0 ? (
           <div className={`${airportsOpen ? "max-h-72 overflow-y-auto pr-1" : ""} space-y-2`}>
             {nearbyAirports.slice(0, airportsOpen ? 10 : 5).map((airport) => (
               <div
@@ -704,7 +712,7 @@ function metricLabel(metric: string) {
 }
 
 function airportContextLabel(context?: "selected_aircraft" | "search_area" | "current_view" | null, label?: string | null) {
-  if (context === "selected_aircraft") return "Nearest airports to selected aircraft"
+  if (context === "selected_aircraft") return label ? `Nearest airports to selected aircraft ${label}` : "Nearest airports to selected aircraft"
   if (context === "current_view") return "Airports in current view"
   if (label) return `Nearby airports for ${label}`
   return "Nearby airports for current area"
