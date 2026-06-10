@@ -1,20 +1,31 @@
 "use client"
 
 import { MapPin, Mic, Plane, Search } from "lucide-react"
+import { useEffect, useRef } from "react"
 import { useVoiceInput } from "@/hooks/use-voice-input"
 
 interface DiscoverFiltersProps {
   search: string
   onSearchChange: (search: string) => void
   onSearchSubmit?: () => void
+  focusNonce?: number
   showOnGround: boolean
   onToggleOnGround: () => void
   showAirports?: boolean
   onToggleAirports?: () => void
 }
 
-export function DiscoverFilters({ search, onSearchChange, onSearchSubmit, showOnGround, onToggleOnGround, showAirports = false, onToggleAirports }: DiscoverFiltersProps) {
+export function DiscoverFilters({ search, onSearchChange, onSearchSubmit, focusNonce = 0, showOnGround, onToggleOnGround, showAirports = false, onToggleAirports }: DiscoverFiltersProps) {
   const { voiceState, toggleVoiceInput } = useVoiceInput(search, onSearchChange)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (!focusNonce) return
+    const input = inputRef.current
+    if (!input) return
+    input.focus()
+    input.setSelectionRange(input.value.length, input.value.length)
+  }, [focusNonce])
 
   return (
     <div className="flex flex-wrap items-center gap-3 border-b border-border/30 bg-background/70 px-4 py-3 backdrop-blur-lg">
@@ -27,6 +38,7 @@ export function DiscoverFilters({ search, onSearchChange, onSearchSubmit, showOn
       >
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <input
+          ref={inputRef}
           value={search}
           onChange={(event) => onSearchChange(event.target.value)}
           placeholder="Search callsign, ICAO24, country..."

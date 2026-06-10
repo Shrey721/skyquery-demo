@@ -63,7 +63,9 @@ export function DiscoverPage() {
   const [nearbyAirportsLabel, setNearbyAirportsLabel] = useState<string | null>(null)
   const [nearbyAirportsSource, setNearbyAirportsSource] = useState<string | null>(null)
   const [airportContextSource, setAirportContextSource] = useState<AirportContextSource>(null)
-  const [search, setSearch] = useState("")
+  const [draftQuery, setDraftQuery] = useState("")
+  const [submittedQuery, setSubmittedQuery] = useState("")
+  const [searchFocusNonce, setSearchFocusNonce] = useState(0)
   const [showOnGround, setShowOnGround] = useState(false)
   const [showAirports, setShowAirports] = useState(false)
   const [scannerActive, setScannerActive] = useState(false)
@@ -195,9 +197,9 @@ export function DiscoverPage() {
   }, [])
 
   const refreshWeather = useCallback(() => {
-    const region = regionFromSearch(search) ?? submittedSearchRegion ?? weatherRegion ?? regionFromBounds(bounds)
+    const region = regionFromSearch(submittedQuery) ?? submittedSearchRegion ?? weatherRegion ?? regionFromBounds(bounds)
     if (region) fetchWeatherForLocation("manual_refresh", region)
-  }, [bounds, fetchWeatherForLocation, search, submittedSearchRegion, weatherRegion])
+  }, [bounds, fetchWeatherForLocation, submittedQuery, submittedSearchRegion, weatherRegion])
 
   const clearMapSelection = useCallback(() => {
     setSelected(null)
@@ -209,7 +211,7 @@ export function DiscoverPage() {
   }, [])
 
   const switchEnterpriseAirport = useCallback(async (airport: NearbyAirport, enterpriseAirportCode = airport.code) => {
-    const intent = parseDiscoverQuery(search)
+    const intent = parseDiscoverQuery(submittedQuery)
     const region = { label: `${airport.code} - ${airport.name}`, latitude: airport.lat, longitude: airport.lon }
     const airportBounds = boundsAroundLocation({ latitude: airport.lat, longitude: airport.lon })
     setActiveEnterpriseAirportCode(enterpriseAirportCode)
@@ -241,11 +243,15 @@ export function DiscoverPage() {
     } else if (weatherResponse) {
       setWeatherSummary(requestedWeatherMetricSummary(intent, weatherResponse, flightResponse?.aircraft.length ?? 0))
     }
-  }, [fetchWeatherForLocation, loadFlights, loadNearbyAirports, search])
+  }, [fetchWeatherForLocation, loadFlights, loadNearbyAirports, submittedQuery])
 
   const handleSearchChange = useCallback((value: string) => {
-    setSearch(value)
-    setSubmittedSearchRegion(null)
+    setDraftQuery(value)
+  }, [])
+
+  const handleSuggestedQuestion = useCallback((question: string) => {
+    setDraftQuery(question)
+    setSearchFocusNonce((nonce) => nonce + 1)
   }, [])
 
   useEffect(() => {
@@ -271,7 +277,11 @@ export function DiscoverPage() {
   }, [resizingSidebar, sidebarWidth])
 
   const submitSearch = useCallback(() => {
-    async function runSearch() {
+    const query = draftQuery.trim()
+    setSubmittedQuery(query)
+    setSubmittedSearchRegion(null)
+
+    async function runSearch(search: string) {
       try {
         const intent = parseDiscoverQuery(search)
         const enterpriseRequestId = enterpriseRequestIdRef.current + 1
@@ -469,8 +479,8 @@ export function DiscoverPage() {
         setError("Could not resolve this location. Try a city, airport code, or country.")
       }
     }
-    runSearch()
-  }, [fetchWeatherForLocation, loadFlights, loadNearbyAirports, search, selected, showAirports])
+    runSearch(query)
+  }, [draftQuery, fetchWeatherForLocation, loadFlights, loadNearbyAirports, selected, showAirports])
 
   const toggleAirports = useCallback(() => {
     setShowAirports((enabled) => {
@@ -550,11 +560,7 @@ export function DiscoverPage() {
     window.location.href = "/"
   }, [])
 
-  const searchRegion = useMemo(() => regionFromSearch(search) ?? submittedSearchRegion, [search, submittedSearchRegion])
-  const preserveLiveAircraftForEnterprise = Boolean(enterprise?.available && enterprise.queryPlan.needsTrino)
-
   const filteredAircraft = useMemo(() => {
-    const needle = search.trim().toLowerCase()
     return aircraft.filter((flight) => {
       if (!showOnGround && flight.on_ground) return false
       if (scannerActive) {
@@ -569,15 +575,9 @@ export function DiscoverPage() {
         }
         return true
       }
-      if (searchRegion && !preserveLiveAircraftForEnterprise) {
-        return distanceNm(flight.latitude, flight.longitude, searchRegion.latitude, searchRegion.longitude) <= 180
-      }
-      return !needle ||
-        flight.callsign.toLowerCase().includes(needle) ||
-        flight.icao24.toLowerCase().includes(needle) ||
-        flight.origin_country.toLowerCase().includes(needle)
+      return true
     })
-  }, [aircraft, preserveLiveAircraftForEnterprise, scannerActive, scannerBounds, scannerRegion, search, searchRegion, showOnGround])
+  }, [aircraft, scannerActive, scannerBounds, scannerRegion, showOnGround])
 
   const mapAirports = useMemo(() => {
     const merged = [...(enterprise?.selectedAirports ?? []), ...nearbyAirports]
@@ -801,7 +801,7 @@ export function DiscoverPage() {
           )}
         </div>
       </header>
-      <DiscoverFilters search={search} onSearchChange={handleSearchChange} onSearchSubmit={submitSearch} showOnGround={showOnGround} onToggleOnGround={() => setShowOnGround((value) => !value)} showAirports={showAirports} onToggleAirports={toggleAirports} />
+      <DiscoverFilters search={draftQuery} onSearchChange={handleSearchChange} onSearchSubmit={submitSearch} focusNonce={searchFocusNonce} showOnGround={showOnGround} onToggleOnGround={() => setShowOnGround((value) => !value)} showAirports={showAirports} onToggleAirports={toggleAirports} />
       <main className="relative flex min-h-0 flex-1 flex-col lg:flex-row">
         <div className="relative min-h-[420px] flex-1">
           <AviationMap aircraft={filteredAircraft} selectedAircraft={selected} selectedAircraftIds={visibleSelectedAircraftIds} selectedAirportCodes={selectedAirportCodes} onSelectAircraft={handleAircraftSelect} onSelectAirport={handleNearbyAirportSelect} onClearSelection={clearMapSelection} onBoundsChange={handleBoundsChange} focusLocation={focusLocation} fitLocations={fitLocations} airports={mapAirports} showAirports={showAirports} scannerMode={scannerActive} scannerConflicts={scannerResult?.pairs ?? []} />
@@ -872,6 +872,7 @@ export function DiscoverPage() {
             nearbyAirportsLabel={nearbyAirportsLabel}
             nearbyAirportsSource={nearbyAirportsSource}
             onRefreshWeather={refreshWeather}
+            onSuggestedQuestion={handleSuggestedQuestion}
             enterprise={enterprise}
             enterpriseLoading={enterpriseLoading}
             activeEnterpriseAirportCode={activeEnterpriseAirportCode}

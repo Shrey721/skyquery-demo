@@ -1,6 +1,5 @@
 "use client"
 
-import Link from "next/link"
 import { useState } from "react"
 import { Activity, ChevronDown, CloudRain, Database, MapPin, Plane, Radar, Radio, RefreshCw, Sparkles, X } from "lucide-react"
 import type { LiveAircraft, MapBounds } from "@/lib/public-flights-api"
@@ -62,6 +61,7 @@ export function IntelligencePanel({
   nearbyAirportsLabel,
   nearbyAirportsSource,
   onRefreshWeather,
+  onSuggestedQuestion,
   enterprise,
   enterpriseLoading = false,
   activeEnterpriseAirportCode,
@@ -105,6 +105,7 @@ export function IntelligencePanel({
   nearbyAirportsLabel?: string | null
   nearbyAirportsSource?: string | null
   onRefreshWeather?: () => void
+  onSuggestedQuestion?: (question: string) => void
   enterprise?: DiscoverEnterpriseResponse | null
   enterpriseLoading?: boolean
   activeEnterpriseAirportCode?: string | null
@@ -379,7 +380,14 @@ export function IntelligencePanel({
       <section className="space-y-3">
         <h2 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider"><Sparkles className="h-4 w-4 text-accent" /> AI Suggested Questions</h2>
         {["Show airports with high traffic in this view", "Summarize live airspace anomalies"].map((question) => (
-          <Link key={question} href={`/?q=${encodeURIComponent(question)}`} className="block rounded-lg bg-secondary/30 p-2 text-xs text-muted-foreground hover:text-foreground">{question}</Link>
+          <button
+            key={question}
+            type="button"
+            onClick={() => onSuggestedQuestion?.(question)}
+            className="block w-full rounded-lg bg-secondary/30 p-2 text-left text-xs text-muted-foreground hover:text-foreground"
+          >
+            {question}
+          </button>
         ))}
         <p className="flex items-center gap-1 text-[11px] text-muted-foreground"><Radio className="h-3 w-3" /> Enterprise intelligence uses selected Trino context. Weather from Open-Meteo.</p>
       </section>
