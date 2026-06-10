@@ -9,8 +9,9 @@ interface AviationMapProps {
   aircraft: LiveAircraft[]
   selectedAircraft: LiveAircraft | null
   selectedAircraftIds?: string[]
-  selectedAirportCode?: string | null
+  selectedAirportCodes?: string[]
   onSelectAircraft: (aircraft: LiveAircraft) => void
+  onSelectAirport?: (airport: NearbyAirport) => void
   onClearSelection?: () => void
   onBoundsChange: (bounds: MapBounds) => void
   focusLocation?: { latitude: number; longitude: number; zoom?: number; nonce: number } | null
@@ -75,9 +76,10 @@ function airportIdentifier(airport: NearbyAirport) {
 function planeIcon(L: any, flight: LiveAircraft, selected: boolean, view: TrafficView) {
   const heading = flight.heading != null && Number.isFinite(flight.heading) ? flight.heading : 0
   const impactedClass = flight.weather_impacted ? " is-weather-impacted" : ""
+  const selectedScale = selected ? " scale(1.12)" : ""
   return L.divIcon({
     className: "discover-marker-shell",
-    html: `<span class="discover-plane is-${view}${selected ? " is-selected" : ""}${impactedClass}" style="transform:rotate(${heading}deg)" aria-hidden="true">&#9992;</span>`,
+    html: `<span class="discover-plane is-${view}${selected ? " is-selected" : ""}${impactedClass}" style="transform:rotate(${heading}deg)${selectedScale}" aria-hidden="true">&#9992;</span>`,
     iconSize: [30, 30],
     iconAnchor: [15, 15],
   })
@@ -179,7 +181,7 @@ function sampleAircraft(map: any, aircraft: LiveAircraft[], cap: number, cellSiz
   return sampled
 }
 
-export function AviationMap({ aircraft, selectedAircraft, selectedAircraftIds = [], selectedAirportCode = null, onSelectAircraft, onClearSelection, onBoundsChange, focusLocation, fitLocations, airports = [], showAirports = false, scannerMode = false, scannerConflicts = [] }: AviationMapProps) {
+export function AviationMap({ aircraft, selectedAircraft, selectedAircraftIds = [], selectedAirportCodes = [], onSelectAircraft, onSelectAirport, onClearSelection, onBoundsChange, focusLocation, fitLocations, airports = [], showAirports = false, scannerMode = false, scannerConflicts = [] }: AviationMapProps) {
   const hostRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<any>(null)
   const leafletRef = useRef<any>(null)
@@ -195,8 +197,9 @@ export function AviationMap({ aircraft, selectedAircraft, selectedAircraftIds = 
   const fitLocationsRef = useRef(fitLocations)
   const selectedRef = useRef(selectedAircraft)
   const selectedAircraftIdsRef = useRef(selectedAircraftIds)
-  const selectedAirportCodeRef = useRef(selectedAirportCode)
+  const selectedAirportCodesRef = useRef(selectedAirportCodes)
   const onSelectRef = useRef(onSelectAircraft)
+  const onSelectAirportRef = useRef(onSelectAirport)
   const onClearSelectionRef = useRef(onClearSelection)
   const onBoundsRef = useRef(onBoundsChange)
   const renderRef = useRef<() => void>(() => undefined)
@@ -211,12 +214,13 @@ export function AviationMap({ aircraft, selectedAircraft, selectedAircraftIds = 
     scannerConflictsRef.current = scannerConflicts
     selectedRef.current = selectedAircraft
     selectedAircraftIdsRef.current = selectedAircraftIds
-    selectedAirportCodeRef.current = selectedAirportCode
+    selectedAirportCodesRef.current = selectedAirportCodes
     onSelectRef.current = onSelectAircraft
+    onSelectAirportRef.current = onSelectAirport
     onClearSelectionRef.current = onClearSelection
     onBoundsRef.current = onBoundsChange
     renderRef.current()
-  }, [aircraft, airports, onBoundsChange, onClearSelection, onSelectAircraft, scannerConflicts, scannerMode, selectedAircraft, selectedAircraftIds, selectedAirportCode, showAirports])
+  }, [aircraft, airports, onBoundsChange, onClearSelection, onSelectAircraft, onSelectAirport, scannerConflicts, scannerMode, selectedAircraft, selectedAircraftIds, selectedAirportCodes, showAirports])
 
   useEffect(() => {
     const map = mapRef.current
@@ -304,7 +308,12 @@ export function AviationMap({ aircraft, selectedAircraft, selectedAircraftIds = 
         riseOffset: isSelected ? 1000 : 0,
         zIndexOffset: isSelected ? 1000 : 0,
       })
-      if (view === "aircraft" || scannerModeRef.current) marker.on("click", () => onSelectRef.current(flight))
+      if (view === "aircraft" || scannerModeRef.current) {
+        marker.on("click", (event: any) => {
+          event.originalEvent?.stopPropagation?.()
+          onSelectRef.current(flight)
+        })
+      }
       marker.addTo(aircraftLayer)
     })
     if (scannerModeRef.current) {
@@ -317,7 +326,7 @@ export function AviationMap({ aircraft, selectedAircraft, selectedAircraftIds = 
           pane: "discoverScanner",
           color,
           weight: pair.weatherAdjustedRisk === "Critical" ? 3 : 2,
-          opacity: 0.85,
+          opacity: 0.92,
           dashArray: pair.weatherAdjustedRisk === "Low" ? "5 7" : undefined,
           interactive: false,
         }).addTo(scannerLayer)
@@ -328,28 +337,29 @@ export function AviationMap({ aircraft, selectedAircraft, selectedAircraftIds = 
             radius: pair.weatherAdjustedRisk === "Critical" ? 18 : 16,
             color,
             weight: pair.weatherAdjustedRisk === "Critical" ? 2.5 : 2,
-            opacity: 0.75,
+            opacity: 0.8,
             fillColor: color,
-            fillOpacity: 0.08,
+            fillOpacity: 0.045,
             interactive: false,
           }).addTo(scannerLayer)
         })
       })
     }
     if (showAirportsRef.current) {
-      const selectedAirport = selectedAirportCodeRef.current?.trim().toUpperCase()
+      const selectedAirports = new Set(selectedAirportCodesRef.current.map((code) => code.trim().toUpperCase()))
       airportsRef.current.slice(0, 10).forEach((airport) => {
         if (!Number.isFinite(airport.lat) || !Number.isFinite(airport.lon)) return
         const airportCodes = [airportIdentifier(airport), airport.iataCode, airport.icaoCode, airport.ident]
           .map((code) => code?.trim().toUpperCase())
           .filter(Boolean)
-        const isSelectedAirport = Boolean(selectedAirport && airportCodes.includes(selectedAirport))
-        L.marker([airport.lat, airport.lon], {
+        const isSelectedAirport = airportCodes.some((code) => code && selectedAirports.has(code))
+        const marker = L.marker([airport.lat, airport.lon], {
           pane: "discoverAirports",
           icon: airportIcon(L, airport, isSelectedAirport),
-          keyboard: false,
+          keyboard: true,
           riseOnHover: true,
           riseOffset: isSelectedAirport ? 1200 : 750,
+          zIndexOffset: isSelectedAirport ? 900 : 0,
         })
           .bindTooltip(airportTooltip(airport), {
             direction: "top",
@@ -359,7 +369,11 @@ export function AviationMap({ aircraft, selectedAircraft, selectedAircraftIds = 
             className: "discover-airport-tooltip-shell",
           })
           .bindPopup(airportPopup(airport), { className: "discover-airport-popup-shell" })
-          .addTo(airportLayer)
+        marker.on("click", (event: any) => {
+          event.originalEvent?.stopPropagation?.()
+          onSelectAirportRef.current?.(airport)
+        })
+        marker.addTo(airportLayer)
       })
     }
     setRenderedCount(markerAircraft.length)

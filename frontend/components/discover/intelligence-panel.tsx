@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { useState } from "react"
-import { Activity, ChevronDown, CloudRain, Database, MapPin, Plane, Radar, Radio, RefreshCw, Sparkles } from "lucide-react"
+import { Activity, ChevronDown, CloudRain, Database, MapPin, Plane, Radar, Radio, RefreshCw, Sparkles, X } from "lucide-react"
 import type { LiveAircraft, MapBounds } from "@/lib/public-flights-api"
 import type { WeatherIntelligence, WeatherRegion } from "@/lib/weather-api"
 import type { NearbyAirport } from "@/lib/nearby-airports-api"
@@ -47,6 +47,10 @@ export function IntelligencePanel({
   weatherError,
   weatherSummary,
   weatherImpactAssessment,
+  selectedAircraftList,
+  selectedAirportList,
+  onRemoveSelectedAircraft,
+  onRemoveSelectedAirport,
   scannerActive,
   scannerResult,
   scannerLastUpdated,
@@ -61,9 +65,9 @@ export function IntelligencePanel({
   enterpriseLoading = false,
   activeEnterpriseAirportCode,
   onSelectEnterpriseAirport,
-  selectedCloseCallId,
+  selectedCloseCallIds,
   onSelectCloseCall,
-  selectedAirportCode,
+  selectedAirportCodes,
   onSelectNearbyAirport,
 }: {
   aircraft: LiveAircraft[]
@@ -85,6 +89,10 @@ export function IntelligencePanel({
     contributors: string[]
     honestyLabel: string
   } | null
+  selectedAircraftList?: LiveAircraft[]
+  selectedAirportList?: NearbyAirport[]
+  onRemoveSelectedAircraft?: (aircraftId: string) => void
+  onRemoveSelectedAirport?: (airportCode: string) => void
   scannerActive?: boolean
   scannerResult?: AirspaceScanResult | null
   scannerLastUpdated?: string | null
@@ -99,9 +107,9 @@ export function IntelligencePanel({
   enterpriseLoading?: boolean
   activeEnterpriseAirportCode?: string | null
   onSelectEnterpriseAirport?: (airportCode: string) => void
-  selectedCloseCallId?: string | null
+  selectedCloseCallIds?: string[]
   onSelectCloseCall?: (pair: AirspaceConflictPair) => void
-  selectedAirportCode?: string | null
+  selectedAirportCodes?: string[]
   onSelectNearbyAirport?: (airport: NearbyAirport) => void
 }) {
   const [detailsOpen, setDetailsOpen] = useState(false)
@@ -269,7 +277,7 @@ export function IntelligencePanel({
             {scannerResult?.pairs.length ? (
               <div className="max-h-96 space-y-2 overflow-y-auto pr-1">
                 {scannerResult.pairs.slice(0, 12).map((pair) => (
-                  <ScannerPairCard key={pair.id} pair={pair} selected={pair.id === selectedCloseCallId} onSelect={onSelectCloseCall} />
+                  <ScannerPairCard key={pair.id} pair={pair} selected={selectedCloseCallIds?.includes(pair.id)} onSelect={onSelectCloseCall} />
                 ))}
               </div>
             ) : (
@@ -296,20 +304,26 @@ export function IntelligencePanel({
       </section>
       <section className="mb-5 space-y-3">
         <h2 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider"><Plane className="h-4 w-4 text-primary" /> Selected Aircraft</h2>
-        {selected ? (
-          <div className="space-y-2 rounded-xl border border-primary/20 bg-primary/5 p-3 text-xs">
-            <p className="text-base font-semibold text-foreground">{selected.callsign || "Unknown callsign"}</p>
-            <Detail label="ICAO24" value={selected.icao24.toUpperCase()} />
-            <Detail label="Origin" value={selected.origin_country || "Unavailable"} />
-            <Detail label="Altitude" value={displayNumber(selected.altitude_ft, " ft")} />
-            <Detail label="Speed" value={displayNumber(selected.speed_kts, " kt")} />
-            <Detail label="Heading" value={displayNumber(selected.heading, " deg")} />
-            <Detail label="Vertical rate" value={displayNumber(selected.vertical_rate, " m/s")} />
-            <Detail label="Last seen" value={selected.last_seen ? new Date(selected.last_seen).toLocaleTimeString() : "Unavailable"} />
-            <Detail label="Source" value={selected.source === "demo" ? "Sample data" : "OpenSky"} />
+        {selectedAircraftList?.length ? (
+          <div className="space-y-2">
+            {selectedAircraftList.map((flight) => (
+              <SelectedAircraftCard key={aircraftSelectionId(flight)} flight={flight} onRemove={onRemoveSelectedAircraft} />
+            ))}
           </div>
+        ) : selected ? (
+          <SelectedAircraftCard flight={selected} onRemove={onRemoveSelectedAircraft} />
         ) : <p className="rounded-xl border border-border/40 bg-secondary/20 p-3 text-xs text-muted-foreground">Select an aircraft marker for live details.</p>}
       </section>
+      {selectedAirportList?.length ? (
+        <section className="mb-5 space-y-3">
+          <h2 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider"><MapPin className="h-4 w-4 text-primary" /> Selected Airports</h2>
+          <div className="space-y-2">
+            {selectedAirportList.map((airport) => (
+              <SelectedAirportCard key={airportIdentifier(airport)} airport={airport} onRemove={onRemoveSelectedAirport} />
+            ))}
+          </div>
+        </section>
+      ) : null}
       <section className="mb-5 space-y-3">
         <div className="flex items-center justify-between gap-3">
           <h2 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider"><MapPin className="h-4 w-4 text-primary" /> Nearby Airports</h2>
@@ -338,7 +352,7 @@ export function IntelligencePanel({
                   event.preventDefault()
                   onSelectNearbyAirport(airport)
                 }}
-                className={`rounded-lg border p-2 text-xs transition ${airportMatchesCode(airport, selectedAirportCode) ? "border-primary/70 bg-primary/10 ring-1 ring-primary/30" : "border-border/30 bg-secondary/20"} ${onSelectNearbyAirport ? "cursor-pointer hover:border-primary/50 hover:bg-secondary/30" : ""}`}
+                className={`rounded-lg border p-2 text-xs transition ${selectedAirportCardClass(airportMatchesCode(airport, selectedAirportCodes), Boolean(onSelectNearbyAirport))}`}
               >
                 <div className="flex items-start justify-between gap-3">
                   <div>
@@ -383,7 +397,7 @@ function ScannerPairCard({ pair, selected = false, onSelect }: { pair: AirspaceC
         event.preventDefault()
         onSelect(pair)
       }}
-      className={`rounded-lg border p-2 transition ${selected ? "border-primary/70 bg-primary/10 ring-1 ring-primary/30" : "border-border/30 bg-background/20"} ${onSelect ? "cursor-pointer hover:border-primary/50 hover:bg-background/30" : ""}`}
+      className={`rounded-lg border p-2 transition ${selected ? "border-cyan-300/70 bg-cyan-400/10 ring-1 ring-cyan-300/30" : "border-border/30 bg-background/20"} ${onSelect ? selected ? "cursor-pointer hover:border-cyan-200/80 hover:bg-cyan-400/15" : "cursor-pointer hover:border-primary/50 hover:bg-background/30" : ""}`}
     >
       <div className="mb-2 flex items-start justify-between gap-2">
         <div>
@@ -407,11 +421,87 @@ function ScannerPairCard({ pair, selected = false, onSelect }: { pair: AirspaceC
   )
 }
 
-function airportMatchesCode(airport: NearbyAirport, code?: string | null) {
-  const normalized = code?.trim().toUpperCase()
-  if (!normalized) return false
+function SelectedAircraftCard({ flight, onRemove }: { flight: LiveAircraft; onRemove?: (aircraftId: string) => void }) {
+  const aircraftId = aircraftSelectionId(flight)
+  return (
+    <div className="space-y-2 rounded-xl border border-cyan-300/45 bg-cyan-400/10 p-3 text-xs ring-1 ring-cyan-300/20 transition hover:border-cyan-200/70 hover:bg-cyan-400/15">
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-base font-semibold text-foreground">{flight.callsign || "Unknown callsign"}</p>
+        {onRemove && (
+          <button
+            type="button"
+            onClick={() => onRemove(aircraftId)}
+            className="rounded-md border border-border/40 bg-background/40 p-1 text-muted-foreground transition hover:text-foreground"
+            aria-label={`Remove ${flight.callsign || flight.icao24} selection`}
+          >
+            <X className="h-3 w-3" />
+          </button>
+        )}
+      </div>
+      <Detail label="ICAO24" value={flight.icao24.toUpperCase()} />
+      <Detail label="Origin" value={flight.origin_country || "Unavailable"} />
+      <Detail label="Altitude" value={displayNumber(flight.altitude_ft, " ft")} />
+      <Detail label="Speed" value={displayNumber(flight.speed_kts, " kt")} />
+      <Detail label="Heading" value={displayNumber(flight.heading, " deg")} />
+      <Detail label="Vertical rate" value={displayNumber(flight.vertical_rate, " m/s")} />
+      <Detail label="Last seen" value={flight.last_seen ? new Date(flight.last_seen).toLocaleTimeString() : "Unavailable"} />
+      <Detail label="Source" value={flight.source === "demo" ? "Sample data" : "OpenSky"} />
+    </div>
+  )
+}
+
+function SelectedAirportCard({ airport, onRemove }: { airport: NearbyAirport; onRemove?: (airportCode: string) => void }) {
+  const airportId = airportIdentifier(airport)
+  return (
+    <div className="rounded-xl border border-amber-300/45 bg-amber-400/10 p-3 text-xs ring-1 ring-amber-300/20 transition hover:border-amber-200/70 hover:bg-amber-400/15">
+      <div className="mb-2 flex items-start justify-between gap-2">
+        <div>
+          <p className="text-sm font-semibold text-amber-200">{airport.code || airport.ident}</p>
+          <p className="text-muted-foreground">{airport.name}</p>
+        </div>
+        {onRemove && (
+          <button
+            type="button"
+            onClick={() => onRemove(airportId)}
+            className="rounded-md border border-border/40 bg-background/40 p-1 text-muted-foreground transition hover:text-foreground"
+            aria-label={`Remove ${airport.code || airport.ident} selection`}
+          >
+            <X className="h-3 w-3" />
+          </button>
+        )}
+      </div>
+      <Detail label="Ident" value={airport.ident || "Unavailable"} />
+      <Detail label="City" value={airport.city || "Unavailable"} />
+      <Detail label="Country" value={airport.country || "Unavailable"} />
+      <Detail label="Type" value={airport.type || "Unavailable"} />
+      <Detail label="Distance" value={`${Math.round(airport.distanceNm)} nm`} />
+    </div>
+  )
+}
+
+function airportMatchesCode(airport: NearbyAirport, codes?: string[]) {
+  const normalized = new Set((codes ?? []).map((code) => code.trim().toUpperCase()))
+  if (!normalized.size) return false
   return [airport.code, airport.iataCode, airport.icaoCode, airport.ident]
-    .some((candidate) => candidate?.trim().toUpperCase() === normalized)
+    .some((candidate) => candidate && normalized.has(candidate.trim().toUpperCase()))
+}
+
+function selectedAirportCardClass(selected: boolean, clickable: boolean) {
+  if (selected) {
+    return `border-amber-300/70 bg-amber-400/10 ring-1 ring-amber-300/30 ${clickable ? "cursor-pointer hover:border-amber-200/80 hover:bg-amber-400/15" : ""}`
+  }
+  return `border-border/30 bg-secondary/20 ${clickable ? "cursor-pointer hover:border-primary/50 hover:bg-secondary/30" : ""}`
+}
+
+function aircraftSelectionId(flight: LiveAircraft) {
+  const icao24 = flight.icao24?.trim().toLowerCase()
+  if (icao24) return `icao24:${icao24}`
+  const callsign = flight.callsign?.trim().toLowerCase()
+  return callsign ? `callsign:${callsign}` : ""
+}
+
+function airportIdentifier(airport: NearbyAirport) {
+  return (airport.code || airport.iataCode || airport.icaoCode || airport.ident || "").trim().toUpperCase()
 }
 
 function Metric({ label, value }: { label: string; value: string }) {
