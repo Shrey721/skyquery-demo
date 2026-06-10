@@ -8,6 +8,7 @@ import {
   weatherImpactSummary,
 } from "./lib/discover-query-intent.mjs"
 import { hasExplicitLocationScope, isComparisonQuery, semanticEnterpriseFilter } from "./lib/discover-query-intent.mjs"
+import { normalizeDiscoverQuery } from "./lib/discover-query-intent.mjs"
 import { normalizeLocationQuery } from "./lib/location-search.mjs"
 
 const tempTokyo = parseDiscoverQuery("show temperature over Tokyo")
@@ -163,6 +164,31 @@ assert.equal(scannerDelhi.queryPlan.intent, "airspace_scanner")
 const scannerAtl = parseDiscoverQuery("airspace scanner near ATL")
 assert.equal(scannerAtl.scannerMode, true)
 assert.equal(normalizeLocationQuery("airspace scanner near ATL"), "atl")
+
+const tolerantCases = [
+  ["tokyo", "live_airspace", "tokyo"],
+  ["of tokyo", "live_airspace", "tokyo"],
+  ["show flights near tokyo", "live_airspace", "tokyo"],
+  ["fligt near tokyo", "live_airspace", "tokyo"],
+  ["weather in delhi", "weather", "delhi"],
+  ["wether over london", "weather", "london"],
+  ["airports around dubai", "airport", "dubai"],
+  ["show me nearby airports of singapore", "airport", "singapore"],
+  ["flights affected by rain near london", "weather", "london"],
+  ["visibility near london", "weather", "london"],
+  ["temperature over tokyo", "weather", "tokyo"],
+]
+
+for (const [query, expectedIntent, expectedLocation] of tolerantCases) {
+  assert.equal(parseDiscoverQuery(query).queryPlan.intent, expectedIntent, query)
+  assert.equal(normalizeLocationQuery(query), expectedLocation, query)
+}
+
+assert.equal(normalizeDiscoverQuery("can you show me fligt near Tokyo please"), "flight near tokyo")
+assert.equal(parseDiscoverQuery("compare DEL and ATL performance").queryPlan.primarySource, "trino")
+assert.equal(parseDiscoverQuery("compare DEL and ATL performance").comparison, true)
+assert.equal(parseDiscoverQuery("del vs atl delay").queryPlan.primarySource, "trino")
+assert.equal(parseDiscoverQuery("del vs atl delay").comparison, true)
 
 assert.equal(
   requestedWeatherMetricSummary(tempTokyo, { temperature: 22 }, 5),

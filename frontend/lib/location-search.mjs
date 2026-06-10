@@ -23,7 +23,7 @@ export function normalizeLocationQuery(query) {
     .trim()
     .toLowerCase()
     .replace(/[^\p{L}\p{N}\s]/gu, " ")
-    .replace(/\b(show|find|get|list|live|current|weather|flights|flight|aircraft|planes|airspace|scanner|traffic|airport|airports|nearest|nearby|major|temperature|wind|speed|rain|cloud|cover|visibility|aviation|risk|affected|storm|severe|bad|strong|low|high|over|near|around|in|at|above|for|the|me|and|by|delay|delayed|statistics|stats|performance|operational|operations|cancellation|cancellations|cancelled|on|time|historical|enterprise|throughput|kpi|poor|close|calls?|proximity|conflict|miss|altitude|vertical|separation|too|collision|between|each|other)\b/gi, " ")
+    .replace(/\b(show|find|get|list|can|you|please|live|current|weather|wether|meteo|flights|flight|fligt|fligts|aircraft|planes|airplanes|airspace|scanner|traffic|airport|airports|airpot|airpots|nearest|nearby|major|temperature|temprature|wind|speed|rain|cloud|cover|visibility|visiblity|aviation|risk|affected|storm|severe|bad|strong|low|high|over|near|around|in|at|above|for|of|the|me|and|by|delay|delays|delayed|statistics|stats|performance|performence|operational|operations|cancellation|cancellations|cancelled|on|time|historical|enterprise|throughput|kpi|poor|close|calls?|proximity|conflict|miss|altitude|vertical|separation|too|collision|between|each|other|compare|compar|comparison|versus|vs)\b/gi, " ")
     .replace(/\s+/g, " ")
     .trim()
 }

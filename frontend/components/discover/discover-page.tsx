@@ -30,6 +30,8 @@ const AviationMap = dynamic(() => import("./aviation-map").then((module) => modu
 
 type AirportContextSource = { type: "aircraft"; id: string; latitude: number; longitude: number; label: string } | null
 
+const DISCOVER_QUERY_HELP = "I couldn't understand that query. Try: flights near Tokyo, weather in Delhi, airports around Dubai, or compare DEL and ATL performance."
+
 function NavControlsPlaceholder() {
   return (
     <div aria-hidden="true" className="flex items-center gap-3">
@@ -402,7 +404,7 @@ export function DiscoverPage() {
           location = await resolveLocationQuery(search)
         }
         if (!location) {
-          setError("Could not resolve this location. Try a city, airport code, or country.")
+          setError(DISCOVER_QUERY_HELP)
           return
         }
 
@@ -476,7 +478,7 @@ export function DiscoverPage() {
           setWeatherSummary(requestedWeatherMetricSummary(intent, weatherResponse, flightResponse?.aircraft.length ?? 0))
         }
       } catch {
-        setError("Could not resolve this location. Try a city, airport code, or country.")
+        setError(DISCOVER_QUERY_HELP)
       }
     }
     runSearch(query)

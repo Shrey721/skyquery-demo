@@ -1,12 +1,74 @@
-const WEATHER_TERMS = /\b(weather|temperature|wind|rain|cloud|visibility|aviation weather|weather risk|risk)\b/i
-const FLIGHT_TERMS = /\b(flights?|aircraft|planes?|airspace|traffic)\b/i
+const WEATHER_TERMS = /\b(weather|meteo|temperature|wind|rain|storm|cloud|visibility|aviation weather|weather risk|risk)\b/i
+const FLIGHT_TERMS = /\b(flights?|aircraft|planes?|airplanes?|airspace|live airspace|traffic)\b/i
 const IMPACT_TERMS = /\b(affected|impacted|storm|severe weather|bad weather|rain|heavy rain|high wind|strong wind|poor visibility|low visibility|weather affected|weather impacted|affected by weather|aviation risk)\b/i
 const AIRPORT_TERMS = /\b(airports?|nearest airport|nearby airports|major airports)\b/i
-const ENTERPRISE_TERMS = /\b(delay|delayed|on[- ]?time|performance|cancellation|cancellations|cancelled|operations|operational|historical|enterprise|throughput|airport stats|airport statistics|kpi|congestion|risk from enterprise|high risk airports?|compare)\b/i
+const ENTERPRISE_TERMS = /\b(delay|delays|delayed|on[- ]?time|performance|cancellation|cancellations|cancelled|operations|operational|historical|enterprise|throughput|airport stats|airport statistics|kpi|congestion|risk from enterprise|high risk airports?|compare|comparison|versus|vs)\b/i
 const AIRSPACE_SCANNER_TERMS = /\b(close calls?|close-calls?|proximity|airspace scanner|conflicts?|near miss|altitude separation|vertical separation|too close|collision risk)\b/i
+const LOCATION_SCOPE_TERMS = /\b(?:near|around|over|at|in|for|of)\s+([a-z0-9]{2,})\b/gi
+const KEYWORD_CANONICALS = {
+  fligt: "flight",
+  fligts: "flights",
+  plane: "plane",
+  planes: "planes",
+  airplane: "plane",
+  airplanes: "planes",
+  airpot: "airport",
+  airpots: "airports",
+  wether: "weather",
+  meteo: "weather",
+  visiblity: "visibility",
+  temprature: "temperature",
+  performence: "performance",
+  compar: "compare",
+  comparison: "compare",
+  versus: "vs",
+}
+const FUZZY_KEYWORDS = ["flight", "flights", "airport", "airports", "weather", "visibility", "temperature", "performance", "compare", "delay", "rain", "wind", "storm"]
+
+function editDistanceWithin(left, right, maxDistance) {
+  if (Math.abs(left.length - right.length) > maxDistance) return false
+  const previous = Array.from({ length: right.length + 1 }, (_, index) => index)
+  for (let i = 1; i <= left.length; i += 1) {
+    let lastDiagonal = previous[0]
+    previous[0] = i
+    let rowMin = previous[0]
+    for (let j = 1; j <= right.length; j += 1) {
+      const oldDiagonal = previous[j]
+      const cost = left[i - 1] === right[j - 1] ? 0 : 1
+      previous[j] = Math.min(previous[j] + 1, previous[j - 1] + 1, lastDiagonal + cost)
+      lastDiagonal = oldDiagonal
+      rowMin = Math.min(rowMin, previous[j])
+    }
+    if (rowMin > maxDistance) return false
+  }
+  return previous[right.length] <= maxDistance
+}
+
+function canonicalKeyword(token) {
+  if (KEYWORD_CANONICALS[token]) return KEYWORD_CANONICALS[token]
+  if (token.length < 5) return token
+  const match = FUZZY_KEYWORDS.find((keyword) => editDistanceWithin(token, keyword, 1))
+  return match ?? token
+}
+
+export function normalizeDiscoverQuery(input) {
+  const text = String(input ?? "")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s-]/gu, " ")
+    .replace(/\b(can you|show me|please)\b/gi, " ")
+    .replace(/\b(the)\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+  return text
+    .split(" ")
+    .map(canonicalKeyword)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim()
+}
 
 export function semanticEnterpriseFilter(query) {
-  const text = query.trim().toLowerCase()
+  const text = normalizeDiscoverQuery(query)
   if (text.includes("high risk airport") || text.includes("poor performance")) return "high_risk"
   if (text.includes("high delay") || text.includes("high-delay")) return "high_delay"
   if (text.includes("low on-time") || text.includes("low on time")) return "low_on_time"
@@ -16,16 +78,17 @@ export function semanticEnterpriseFilter(query) {
 
 export function hasExplicitLocationScope(query) {
   const excluded = new Set(["airport", "airports", "high", "low", "poor", "risk", "delay", "delays", "performance", "cancellation"])
-  return [...query.matchAll(/\b(?:near|around|over|at|in|for)\s+([a-z]{2,})\b/gi)]
+  return [...normalizeDiscoverQuery(query).matchAll(LOCATION_SCOPE_TERMS)]
     .some((match) => !excluded.has(match[1].toLowerCase()))
 }
 
 export function isComparisonQuery(query) {
-  return /\b(compare|versus|vs)\b/i.test(query) || query.toLowerCase().includes(" between ")
+  const text = normalizeDiscoverQuery(query)
+  return /\b(compare|vs)\b/i.test(text) || text.includes(" between ")
 }
 
 export function parseDiscoverQuery(query) {
-  const text = query.trim().toLowerCase()
+  const text = normalizeDiscoverQuery(query)
   const scannerMode = AIRSPACE_SCANNER_TERMS.test(text)
   const asksImpact = IMPACT_TERMS.test(text)
   const asksSelectedAircraftAirports = /\bselected aircraft\b/.test(text) && AIRPORT_TERMS.test(text)

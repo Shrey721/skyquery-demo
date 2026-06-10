@@ -379,7 +379,7 @@ export function IntelligencePanel({
       </section>
       <section className="space-y-3">
         <h2 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider"><Sparkles className="h-4 w-4 text-accent" /> AI Suggested Questions</h2>
-        {["Show airports with high traffic in this view", "Summarize live airspace anomalies"].map((question) => (
+        {["show airports around Tokyo", "flights affected by rain near London"].map((question) => (
           <button
             key={question}
             type="button"
