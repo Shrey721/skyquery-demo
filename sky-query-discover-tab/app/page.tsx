@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import { TopNavigation } from "@/components/discover/top-navigation";
 import { FilterBar } from "@/components/discover/filter-bar";
 import { AviationMap, Aircraft, MapBounds, ScannerConflict } from "@/components/discover/aviation-map";
@@ -47,15 +47,27 @@ export default function DiscoverPage() {
     setMapBounds(bounds);
   }, []);
 
-  const handleAircraftSelect = useCallback((aircraft: Aircraft | null) => {
-    setSelectedAircraft(aircraft);
+  const clearMapSelection = useCallback(() => {
+    setSelectedAircraft(null);
     setSelectedCloseCallId(null);
     setSelectedAircraftIds([]);
     setSelectedAirportCode(null);
     setFocusMessage(null);
   }, []);
 
+  const handleAircraftSelect = useCallback((aircraft: Aircraft | null) => {
+    setSelectedAircraft(aircraft);
+    setSelectedAircraftIds(aircraft ? [aircraftSelectionId(aircraft)].filter(Boolean) : []);
+    setSelectedCloseCallId(null);
+    setSelectedAirportCode(null);
+    setFocusMessage(null);
+  }, []);
+
   const handleScannerConflictSelect = useCallback((pair: ScannerConflict) => {
+    if (selectedCloseCallId === pair.id) {
+      clearMapSelection();
+      return;
+    }
     const aircraftA = findLoadedAircraft(aircraftSnapshot, pair.aircraftA);
     const aircraftB = findLoadedAircraft(aircraftSnapshot, pair.aircraftB);
     const locations = [aircraftA, aircraftB]
@@ -64,6 +76,7 @@ export default function DiscoverPage() {
 
     setSelectedCloseCallId(pair.id);
     setSelectedAircraftIds([aircraftSelectionId(aircraftA), aircraftSelectionId(aircraftB)].filter(Boolean));
+    setSelectedAircraft(null);
     setSelectedAirportCode(null);
     setFocusMessage(null);
 
@@ -72,15 +85,28 @@ export default function DiscoverPage() {
     } else {
       setFocusMessage("Live position unavailable for this pair.");
     }
-  }, [aircraftSnapshot]);
+  }, [aircraftSnapshot, clearMapSelection, selectedCloseCallId]);
 
   const handleNearbyAirportSelect = useCallback((airport: { code: string; lat: number; lng: number }) => {
+    if (selectedAirportCode === airport.code) {
+      clearMapSelection();
+      return;
+    }
     setSelectedAirportCode(airport.code);
+    setSelectedAircraft(null);
     setSelectedCloseCallId(null);
     setSelectedAircraftIds([]);
     setFocusMessage(null);
     setMapFocus({ locations: [{ lat: airport.lat, lng: airport.lng }], zoom: 2.4, nonce: Date.now() });
-  }, []);
+  }, [clearMapSelection, selectedAirportCode]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") clearMapSelection();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [clearMapSelection]);
 
   const scannerConflicts = useMemo(() => {
     if (!activeFilters.includes("Airspace Scanner")) return [];

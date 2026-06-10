@@ -33,7 +33,7 @@
   height: 30px;
   justify-content: center;
   position: relative;
-  transition: border-color 180ms ease, background-color 180ms ease, box-shadow 180ms ease;
+  transition: border-color 180ms ease, background-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
   width: 30px;
 }
 .discover-plane.is-density {
@@ -56,10 +56,20 @@
   box-shadow: 0 0 8px rgba(34, 211, 238, 0.14);
 }
 .discover-plane.is-selected {
-  background: rgba(34, 211, 238, 0.2);
-  border-color: #67e8f9;
+  background: rgba(34, 211, 238, 0.28);
+  border-color: #cffafe;
   color: #cffafe;
-  box-shadow: 0 0 16px rgba(34, 211, 238, 0.48);
+  box-shadow: 0 0 0 5px rgba(34, 211, 238, 0.2), 0 0 22px rgba(34, 211, 238, 0.72);
+  z-index: 2;
+}
+.discover-plane.is-selected::before {
+  animation: discover-selected-pulse 1.8s ease-out infinite;
+  border: 1px solid rgba(207, 250, 254, 0.75);
+  border-radius: 9999px;
+  content: "";
+  inset: -8px;
+  pointer-events: none;
+  position: absolute;
 }
 .discover-plane.is-weather-impacted {
   background: rgba(245, 158, 11, 0.16);
@@ -84,19 +94,9 @@
   width: 13px;
 }
 
-.discover-scanner-plane {
-  align-items: center;
-  background: color-mix(in srgb, var(--scanner-color) 22%, transparent);
-  border: 1px solid var(--scanner-color);
-  border-radius: 999px;
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--scanner-color) 14%, transparent), 0 0 18px color-mix(in srgb, var(--scanner-color) 55%, transparent);
-  color: var(--scanner-color);
-  display: flex;
-  font-size: 17px;
-  height: 30px;
-  justify-content: center;
-  line-height: 1;
-  width: 30px;
+.discover-proximity-ring {
+  filter: drop-shadow(0 0 10px currentColor);
+  pointer-events: none;
 }
 .discover-airport-marker {
   align-items: center;
@@ -127,9 +127,9 @@
   stroke-width: 1.8;
 }
 .discover-airport-marker.is-selected {
-  background: rgba(34, 211, 238, 0.18);
-  border-color: #67e8f9;
-  box-shadow: 0 0 0 4px rgba(34, 211, 238, 0.18), 0 0 18px rgba(34, 211, 238, 0.5);
+  background: rgba(34, 211, 238, 0.22);
+  border-color: #cffafe;
+  box-shadow: 0 0 0 5px rgba(34, 211, 238, 0.2), 0 0 22px rgba(34, 211, 238, 0.58);
 }
 .discover-airport-marker.is-selected circle {
   fill: rgba(34, 211, 238, 0.2);
@@ -459,6 +459,12 @@
 @keyframes nav-controls-fade-in {
   from { opacity: 0.35; }
   to { opacity: 1; }
+}
+
+@keyframes discover-selected-pulse {
+  0% { opacity: 0.72; transform: scale(0.82); }
+  70% { opacity: 0; transform: scale(1.35); }
+  100% { opacity: 0; transform: scale(1.35); }
 }
 
 .animate-float {

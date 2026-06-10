@@ -498,6 +498,39 @@ export function AviationMap({
       }
     }
 
+    // Draw scanner proximity context behind aircraft icons.
+    if (activeFilters.includes("Airspace Scanner")) {
+      scannerConflicts.forEach((pair) => {
+        const color = pair.weatherAdjustedRisk === "Critical" ? "#ef4444" :
+          pair.weatherAdjustedRisk === "High" ? "#f97316" :
+          pair.weatherAdjustedRisk === "Medium" ? "#f59e0b" : "#38bdf8";
+        const a = latLngToCanvas(pair.aircraftA.lat, pair.aircraftA.lng, width, height);
+        const b = latLngToCanvas(pair.aircraftB.lat, pair.aircraftB.lng, width, height);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = pair.weatherAdjustedRisk === "Critical" ? 3 : 2;
+        ctx.setLineDash(pair.weatherAdjustedRisk === "Low" ? [5, 7] : []);
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        [a, b].forEach((pos) => {
+          const glow = ctx.createRadialGradient(pos.x, pos.y, 0, pos.x, pos.y, 24);
+          glow.addColorStop(0, `${color}55`);
+          glow.addColorStop(1, `${color}00`);
+          ctx.fillStyle = glow;
+          ctx.beginPath();
+          ctx.arc(pos.x, pos.y, 24, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.strokeStyle = color;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(pos.x, pos.y, 16, 0, Math.PI * 2);
+          ctx.stroke();
+        });
+      });
+    }
+
     // Draw aircraft with clustering
     if (activeFilters.includes("Live Airspace")) {
       const clusters = clusterAircraft(aircraftPositionsRef.current, width, height);
@@ -580,39 +613,6 @@ export function AviationMap({
             }
           });
         }
-      });
-    }
-
-    if (activeFilters.includes("Airspace Scanner")) {
-      scannerConflicts.forEach((pair) => {
-        const color = pair.weatherAdjustedRisk === "Critical" ? "#ef4444" :
-          pair.weatherAdjustedRisk === "High" ? "#f97316" :
-          pair.weatherAdjustedRisk === "Medium" ? "#f59e0b" : "#38bdf8";
-        const a = latLngToCanvas(pair.aircraftA.lat, pair.aircraftA.lng, width, height);
-        const b = latLngToCanvas(pair.aircraftB.lat, pair.aircraftB.lng, width, height);
-        ctx.strokeStyle = color;
-        ctx.lineWidth = pair.weatherAdjustedRisk === "Critical" ? 3 : 2;
-        ctx.setLineDash(pair.weatherAdjustedRisk === "Low" ? [5, 7] : []);
-        ctx.beginPath();
-        ctx.moveTo(a.x, a.y);
-        ctx.lineTo(b.x, b.y);
-        ctx.stroke();
-        ctx.setLineDash([]);
-        [a, b].forEach((pos) => {
-          ctx.fillStyle = "rgba(10, 10, 20, 0.9)";
-          ctx.strokeStyle = color;
-          ctx.lineWidth = 2;
-          ctx.beginPath();
-          ctx.arc(pos.x, pos.y, 15, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.stroke();
-        });
-        const midX = (a.x + b.x) / 2;
-        const midY = (a.y + b.y) / 2;
-        ctx.font = "bold 10px 'Geist', sans-serif";
-        ctx.textAlign = "center";
-        ctx.fillStyle = color;
-        ctx.fillText(`${pair.weatherAdjustedRisk} proximity`, midX, midY - 8);
       });
     }
 
