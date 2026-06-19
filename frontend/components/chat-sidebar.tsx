@@ -15,6 +15,9 @@ import {
 } from "lucide-react"
 import { useState } from "react"
 import type { ChatSession } from "@/app/page"
+import { PinChatButton } from "@/components/pin-chat-button"
+import { PinnedChatsSection } from "@/components/pinned-chats-section"
+import { usePinnedChats } from "@/hooks/use-pinned-chats"
 
 interface ChatSidebarProps {
   isOpen: boolean
@@ -183,7 +186,9 @@ export function ChatSidebar({
 }: ChatSidebarProps) {
   const [searchQuery, setSearchQuery] = useState("")
   const [olderExpanded, setOlderExpanded] = useState(true)
+  const [pinnedExpanded, setPinnedExpanded] = useState(true)
   const [expandedTables, setExpandedTables] = useState<Record<string, boolean>>({})
+  const { pinnedChatIds, isPinned, togglePinned } = usePinnedChats()
 
   const toggleTable = (tableName: string) => {
     setExpandedTables((prev) => ({
@@ -199,6 +204,10 @@ export function ChatSidebar({
   })
 
   const grouped = groupSessions(filtered)
+  const filteredSessionById = new Map(filtered.map((session) => [session.id, session]))
+  const pinnedSessions = pinnedChatIds
+    .map((sessionId) => filteredSessionById.get(sessionId))
+    .filter((session): session is ChatSession => Boolean(session))
   const totalSessions = sessions.length
   const schemaCatalogs = groupSchemaTables(schemaTables, activeCatalogSchema)
   const visibleTableCount = schemaCatalogs.reduce(
@@ -206,6 +215,58 @@ export function ChatSidebar({
       count + catalog.schemas.reduce((schemaCount, schema) => schemaCount + schema.tables.length, 0),
     0
   )
+
+  const renderSessionRow = (session: ChatSession) => {
+    const sessionPinned = isPinned(session.id)
+    const isActive = session.id === activeSessionId
+    const title =
+      session.title ||
+      (session.messages[0]?.query ?? "New chat")
+    const meta = sessionMeta(session)
+
+    return (
+      <div key={session.id} className="relative group w-full">
+        <button
+          onClick={() => onSelectSession(session.id)}
+          className={`flex w-full flex-col rounded-lg pl-3 pr-14 py-2 text-left transition-colors ${
+            isActive
+              ? "bg-sidebar-accent text-sidebar-foreground"
+              : "text-sidebar-foreground/60 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground/80"
+          }`}
+        >
+          <div className="flex items-center justify-between gap-2 w-full">
+            <span className="truncate text-sm pr-1">{title}</span>
+            {isActive && (
+              <div className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
+            )}
+          </div>
+          <span className="mt-0.5 text-[11px] text-sidebar-foreground/30">
+            {meta}
+          </span>
+        </button>
+
+        <PinChatButton
+          isPinned={sessionPinned}
+          onToggle={() => togglePinned(session.id)}
+        />
+
+        {/* Delete Chat Session Button */}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            if (window.confirm(`Are you sure you want to delete session "${title}"?`)) {
+              onDeleteSession?.(session.id);
+            }
+          }}
+          className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-sidebar-foreground/20 hover:bg-sidebar-accent hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all duration-200 cursor-pointer"
+          title="Delete conversation"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+    )
+  }
 
   return (
     <motion.aside
@@ -256,86 +317,51 @@ export function ChatSidebar({
             No queries yet
           </p>
         ) : (
-          grouped.map((group) => {
-            const isOlderGroup = group.label === "Older Chats"
-            // Only make "Older Chats" collapsible when total sessions exceed threshold
-            const isCollapsible =
-              isOlderGroup && totalSessions >= OLDER_THRESHOLD
+          <>
+            <PinnedChatsSection
+              sessions={pinnedSessions}
+              isExpanded={pinnedExpanded}
+              onToggleExpanded={() => setPinnedExpanded(!pinnedExpanded)}
+              renderSession={renderSessionRow}
+            />
 
-            return (
-              <div key={group.label} className="mb-3">
-                {/* Group label */}
-                {isCollapsible ? (
-                  <button
-                    onClick={() => setOlderExpanded(!olderExpanded)}
-                    className="flex w-full items-center gap-1 px-2 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/35 transition-colors hover:text-sidebar-foreground/50"
-                  >
-                    <ChevronDown
-                      className={`h-3 w-3 transition-transform ${
-                        olderExpanded ? "" : "-rotate-90"
-                      }`}
-                    />
-                    {group.label}
-                    <span className="ml-1 text-[10px] font-normal normal-case tracking-normal text-sidebar-foreground/25">
-                      ({group.sessions.length})
-                    </span>
-                  </button>
-                ) : (
-                  <p className="px-2 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/35">
-                    {group.label}
-                  </p>
-                )}
+            {grouped.map((group) => {
+              const isOlderGroup = group.label === "Older Chats"
+              // Only make "Older Chats" collapsible when total sessions exceed threshold
+              const isCollapsible =
+                isOlderGroup && totalSessions >= OLDER_THRESHOLD
 
-                {/* Session items */}
-                {(!isCollapsible || olderExpanded) &&
-                  group.sessions.map((session) => {
-                    const isActive = session.id === activeSessionId
-                    const title =
-                      session.title ||
-                      (session.messages[0]?.query ?? "New chat")
-                    const meta = sessionMeta(session)
+              return (
+                <div key={group.label} className="mb-3">
+                  {/* Group label */}
+                  {isCollapsible ? (
+                    <button
+                      onClick={() => setOlderExpanded(!olderExpanded)}
+                      className="flex w-full items-center gap-1 px-2 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/35 transition-colors hover:text-sidebar-foreground/50"
+                    >
+                      <ChevronDown
+                        className={`h-3 w-3 transition-transform ${
+                          olderExpanded ? "" : "-rotate-90"
+                        }`}
+                      />
+                      {group.label}
+                      <span className="ml-1 text-[10px] font-normal normal-case tracking-normal text-sidebar-foreground/25">
+                        ({group.sessions.length})
+                      </span>
+                    </button>
+                  ) : (
+                    <p className="px-2 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/35">
+                      {group.label}
+                    </p>
+                  )}
 
-                    return (
-                      <div key={session.id} className="relative group w-full">
-                        <button
-                          onClick={() => onSelectSession(session.id)}
-                          className={`flex w-full flex-col rounded-lg pl-3 pr-8 py-2 text-left transition-colors ${
-                            isActive
-                              ? "bg-sidebar-accent text-sidebar-foreground"
-                              : "text-sidebar-foreground/60 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground/80"
-                          }`}
-                        >
-                          <div className="flex items-center justify-between gap-2 w-full">
-                            <span className="truncate text-sm pr-1">{title}</span>
-                            {isActive && (
-                              <div className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
-                            )}
-                          </div>
-                          <span className="mt-0.5 text-[11px] text-sidebar-foreground/30">
-                            {meta}
-                          </span>
-                        </button>
-                        
-                        {/* Delete Chat Session Button */}
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            e.preventDefault();
-                            if (window.confirm(`Are you sure you want to delete session "${title}"?`)) {
-                              onDeleteSession?.(session.id);
-                            }
-                          }}
-                          className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-sidebar-foreground/20 hover:bg-sidebar-accent hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all duration-200 cursor-pointer"
-                          title="Delete conversation"
-                        >
-                          <X className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                    )
-                  })}
-              </div>
-            )
-          })
+                  {/* Session items */}
+                  {(!isCollapsible || olderExpanded) &&
+                    group.sessions.map(renderSessionRow)}
+                </div>
+              )
+            })}
+          </>
         )}
       </div>
 
