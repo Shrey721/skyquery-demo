@@ -1,8 +1,15 @@
-from copilot import CopilotClient, SubprocessConfig
 from app.core.config import settings
+
+try:
+    from copilot import CopilotClient, SubprocessConfig
+except ImportError:
+    CopilotClient = None
+    SubprocessConfig = None
+
 
 async def approve_permission(*args, **kwargs):
     return {"approve": True}
+
 
 async def get_copilot_chat_completion(
     github_token: str,
@@ -39,7 +46,7 @@ async def get_copilot_chat_completion(
                 token_source = "ENV_FALLBACK"
             else:
                 token_source = "REDIS/OAUTH"
-        
+
         print("\n" + "="*40)
         print("COPILOT AUTH DIAGNOSTICS")
         print(f"TOKEN PROVIDED: {bool(github_token)}")

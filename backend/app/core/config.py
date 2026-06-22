@@ -112,6 +112,15 @@ class Settings(BaseSettings):
         if self.TRINO_CONNECTION_SOURCE == "saved" and not self.ALLOW_SAVED_CONNECTIONS:
             raise ValueError("TRINO_CONNECTION_SOURCE=saved requires ALLOW_SAVED_CONNECTIONS=true.")
 
+        is_safe_dev_mode = self.APP_ENV.lower() in {"development", "dev", "test"} or self.ENABLE_DEV_FALLBACKS
+        if is_safe_dev_mode:
+            self.LLM_PROVIDER = self.LLM_PROVIDER.strip() or "github_copilot"
+            self.LLM_MODEL = self.LLM_MODEL.strip() or "gpt-4.1"
+            self.TRINO_HOST = self.TRINO_HOST.strip() or "localhost"
+            self.TRINO_USER = self.TRINO_USER.strip() or "trino"
+            self.TRINO_DEFAULT_CATALOG = self.TRINO_DEFAULT_CATALOG.strip() or "system"
+            self.TRINO_DEFAULT_SCHEMA = self.TRINO_DEFAULT_SCHEMA.strip() or "default"
+
         if self.APP_ENV.lower() == "production":
             required_fields = {
                 "FRONTEND_URL": self.FRONTEND_URL,

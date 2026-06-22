@@ -1,7 +1,7 @@
 function requireApiBaseUrl(): string {
-  const value = process.env.VITE_API_BASE_URL || process.env.NEXT_PUBLIC_API_BASE_URL || ""
+  const value = process.env.NEXT_PUBLIC_API_BASE_URL || process.env.VITE_API_BASE_URL || ""
   if (!value.trim()) {
-    throw new Error("Missing frontend API configuration. Set VITE_API_BASE_URL in .env.")
+    throw new Error("Missing frontend API configuration. Set NEXT_PUBLIC_API_BASE_URL in .env.")
   }
   return value.replace(/\/+$/, "")
 }
