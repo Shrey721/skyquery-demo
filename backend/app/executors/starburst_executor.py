@@ -58,8 +58,13 @@ class StarburstExecutor:
         finally:
             db.close()
 
+        host = conn_req.host
+        import os
+        if os.path.exists('/.dockerenv') and host in ('localhost', '127.0.0.1'):
+            host = os.environ.get('TRINO_HOST_INTERNAL', 'host.docker.internal')
+
         connect_kwargs = {
-            "host": conn_req.host,
+            "host": host,
             "port": conn_req.port,
             "user": conn_req.username,
             "http_scheme": settings.TRINO_HTTP_SCHEME,
@@ -74,7 +79,7 @@ class StarburstExecutor:
 
         self.connection_info = {
             "source": "environment_configuration",
-            "host": conn_req.host,
+            "host": host,
             "port": conn_req.port,
             "user": connect_kwargs["user"],
             "catalog": connect_kwargs.get("catalog", ""),

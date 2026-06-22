@@ -1,4 +1,4 @@
-﻿"use client"
+"use client"
 
 import { useState, useCallback, useEffect, useRef } from "react"
 import { AnimatePresence, motion } from "framer-motion"
@@ -526,13 +526,20 @@ export default function SkyQueryApp() {
         // Check if user just completed a fresh GitHub authorization
         const justAuthorized = sessionStorage.getItem("just_authorized_github") === "true";
 
+        // Check if there is an active connection on the backend.
+        // If so, we silently adopt/restore it for the current session to ensure seamless tab switching persistence.
         const conn = await getActiveConnection();
         const connectionBelongsToCurrentSession = Boolean(
-          conn?.is_active && currentStoredSessionId && storedConnectionSessionId === currentStoredSessionId
+          conn?.is_active && currentStoredSessionId
         );
 
         if (connectionBelongsToCurrentSession) {
           setConnection(conn);
+          // Auto-align session state for passive hydration if out of sync
+          if (storedConnectionSessionId !== currentStoredSessionId) {
+            markActiveConnectionForSession(currentStoredSessionId);
+            setActiveConnectionSessionId(currentStoredSessionId);
+          }
         } else {
           setConnection(null);
           setSchemaMetadata(null);

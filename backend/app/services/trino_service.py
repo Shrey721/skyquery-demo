@@ -15,9 +15,13 @@ def qualified_name(*parts: str) -> str:
 
 
 def connection_debug_info(conn_req: TrinoConnectionRequest, source: str = "unknown") -> dict:
+    host = conn_req.host
+    import os
+    if os.path.exists('/.dockerenv') and host in ('localhost', '127.0.0.1'):
+        host = os.environ.get('TRINO_HOST_INTERNAL', 'host.docker.internal')
     return {
         "source": source,
-        "host": conn_req.host,
+        "host": host,
         "port": conn_req.port,
         "user": conn_req.username,
         "catalog": conn_req.default_catalog or "",
@@ -46,8 +50,13 @@ def get_trino_connection(conn_req: TrinoConnectionRequest):
     
     http_scheme = "https" if conn_req.ssl_enabled else "http"
     
+    host = conn_req.host
+    import os
+    if os.path.exists('/.dockerenv') and host in ('localhost', '127.0.0.1'):
+        host = os.environ.get('TRINO_HOST_INTERNAL', 'host.docker.internal')
+    
     connect_kwargs = {
-        "host": conn_req.host,
+        "host": host,
         "port": conn_req.port,
         "user": conn_req.username,
         "auth": auth,
@@ -61,7 +70,7 @@ def get_trino_connection(conn_req: TrinoConnectionRequest):
     logger.info(
         "Creating Trino connection | final_endpoint=%s://%s:%s | user=%s | active_catalog=%s | active_schema=%s",
         http_scheme,
-        conn_req.host,
+        host,
         conn_req.port,
         conn_req.username,
         conn_req.default_catalog or "",
