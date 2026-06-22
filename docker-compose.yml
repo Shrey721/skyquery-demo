@@ -1,0 +1,64 @@
+services:
+  redis:
+    image: ${REDIS_IMAGE:-redis:alpine}
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+    command: >
+      sh -c 'if [ -n "$REDIS_PASSWORD" ]; then exec redis-server --appendonly yes --requirepass "$REDIS_PASSWORD"; else exec redis-server --appendonly yes; fi'
+    volumes:
+      - redis_data:/data
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - redis
+    env_file:
+      - .env
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      BACKEND_HOST: 0.0.0.0
+      BACKEND_PORT: 8000
+      BACKEND_PUBLIC_URL: ${BACKEND_PUBLIC_URL:-http://localhost:8000}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      REDIS_HOST: redis
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_DB: ${REDIS_DB:-0}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+    ports:
+      - "8000:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_BASE_URL: http://localhost:8000
+        VITE_API_BASE_URL: http://localhost:8000
+        NEXT_PRIVATE_API_BASE_URL: http://backend:8000
+    restart: unless-stopped
+    depends_on:
+      - backend
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:8000
+      VITE_API_BASE_URL: http://localhost:8000
+      NEXT_PRIVATE_API_BASE_URL: http://backend:8000
+      NEXT_PUBLIC_APP_ENV: production
+      VITE_APP_ENV: production
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+    ports:
+      - "3000:3000"
+
+volumes:
+  redis_data:
